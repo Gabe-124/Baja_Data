@@ -63,5 +63,92 @@ contextBridge.exposeInMainWorld('electronAPI', {
    */
   onConnectionError: (callback) => {
     ipcRenderer.on('connection-error', (event, error) => callback(error));
+  },
+
+  /**
+   * Start endurance grid polling with optional overrides
+   * @param {Object} options
+   * @returns {Promise<{running: boolean, payload: Object|null}>}
+   */
+  startEndurancePolling: (options) => ipcRenderer.invoke('endurance-start', options),
+
+  /**
+   * Stop endurance grid polling
+   * @returns {Promise<{running: boolean}>}
+   */
+  stopEndurancePolling: () => ipcRenderer.invoke('endurance-stop'),
+
+  /**
+   * Retrieve current endurance polling status and cached payload
+   * @returns {Promise<{running: boolean, payload: Object|null}>}
+   */
+  getEnduranceStatus: () => ipcRenderer.invoke('endurance-status'),
+
+  /**
+   * Force a one-time endurance fetch (independent of interval state)
+   * @returns {Promise<{running: boolean, payload: Object|null}>}
+   */
+  refreshEnduranceOnce: () => ipcRenderer.invoke('endurance-refresh'),
+
+  /**
+   * Subscribe to endurance grid data updates
+   * @param {Function} callback
+   * @returns {Function} unsubscribe
+   */
+  onEnduranceData: (callback) => {
+    const channel = 'endurance-data';
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+
+  /**
+   * Subscribe to endurance polling status updates
+   * @param {Function} callback
+   * @returns {Function} unsubscribe
+   */
+  onEnduranceStatus: (callback) => {
+    const channel = 'endurance-status';
+    const handler = (event, status) => callback(status);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+
+  /**
+   * Subscribe to endurance polling errors
+   * @param {Function} callback
+   * @returns {Function} unsubscribe
+   */
+  onEnduranceError: (callback) => {
+    const channel = 'endurance-error';
+    const handler = (event, error) => callback(error);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+
+  /**
+   * Leaderboard polling API
+   */
+  startLeaderboardPolling: (options) => ipcRenderer.invoke('leaderboard-start', options),
+  stopLeaderboardPolling: () => ipcRenderer.invoke('leaderboard-stop'),
+  getLeaderboardStatus: () => ipcRenderer.invoke('leaderboard-status'),
+  refreshLeaderboardOnce: () => ipcRenderer.invoke('leaderboard-refresh'),
+  onLeaderboardData: (callback) => {
+    const channel = 'leaderboard-data';
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+  onLeaderboardStatus: (callback) => {
+    const channel = 'leaderboard-status';
+    const handler = (event, status) => callback(status);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+  onLeaderboardError: (callback) => {
+    const channel = 'leaderboard-error';
+    const handler = (event, error) => callback(error);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
   }
 });

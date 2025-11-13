@@ -9,17 +9,19 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const LoRaReceiver = require('./lora_receiver');
 const fs = require('fs');
+const { EndurancePoller } = require('./poll_endurance');
+const { LeaderboardPoller } = require('./poll_leaderboard');
 
 let mainWindow;
 let loraReceiver;
+let endurancePoller;
+let leaderboardPoller;
 
-/**
- * Create the main application window
- */
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -36,11 +38,26 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (endurancePoller) {
+      mainWindow.webContents.send('endurance-status', { running: endurancePoller.isRunning() });
+      const payload = endurancePoller.getLastPayload();
+      if (payload) {
+        mainWindow.webContents.send('endurance-data', payload);
+      }
+    }
+    if (leaderboardPoller) {
+      mainWindow.webContents.send('leaderboard-status', { running: leaderboardPoller.isRunning() });
+      const boardPayload = leaderboardPoller.getLastPayload();
+      if (boardPayload) {
+        mainWindow.webContents.send('leaderboard-data', boardPayload);
+      }
+    }
+  });
 }
 
-/**
- * Initialize the LoRa receiver and set up event handlers
- */
+// Initialize the LoRa receiver and set up event handlers
 function initLoRaReceiver() {
   loraReceiver = new LoRaReceiver();
 
@@ -67,10 +84,72 @@ function initLoRaReceiver() {
   });
 }
 
+function initEndurancePoller() {
+  if (endurancePoller) {
+    return endurancePoller;
+  }
+
+  endurancePoller = new EndurancePoller();
+
+  endurancePoller.on('data', (payload) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('endurance-data', payload);
+    }
+  });
+
+  endurancePoller.on('error', (error) => {
+    console.error('Endurance poller error:', error);
+    if (mainWindow) {
+      const message = error && error.message ? error.message : String(error);
+      mainWindow.webContents.send('endurance-error', message);
+    }
+  });
+
+  endurancePoller.on('status', (status) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('endurance-status', { running: !!status.running });
+    }
+  });
+
+  return endurancePoller;
+}
+
+function initLeaderboardPoller() {
+  if (leaderboardPoller) {
+    return leaderboardPoller;
+  }
+
+  leaderboardPoller = new LeaderboardPoller();
+
+  leaderboardPoller.on('data', (payload) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('leaderboard-data', payload);
+    }
+  });
+
+  leaderboardPoller.on('error', (error) => {
+    console.error('Leaderboard poller error:', error);
+    if (mainWindow) {
+      const message = error && error.message ? error.message : String(error);
+      mainWindow.webContents.send('leaderboard-error', message);
+    }
+  });
+
+  leaderboardPoller.on('status', (status) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('leaderboard-status', { running: !!status.running });
+    }
+  });
+
+  return leaderboardPoller;
+}
+
 // App lifecycle events
 app.whenReady().then(() => {
   createWindow();
   initLoRaReceiver();
+  initEndurancePoller();
+  initLeaderboardPoller();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -82,6 +161,14 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (loraReceiver) {
     loraReceiver.close();
+  }
+  if (endurancePoller) {
+    endurancePoller.destroy();
+    endurancePoller = null;
+  }
+  if (leaderboardPoller) {
+    leaderboardPoller.destroy();
+    leaderboardPoller = null;
   }
   if (process.platform !== 'darwin') {
     app.quit();
@@ -143,4 +230,91 @@ ipcMain.handle('load-config', async () => {
     console.error('Failed to load config:', err);
     return null;
   }
+});
+
+// Endurance polling controls
+ipcMain.handle('endurance-start', async (event, options = {}) => {
+  const poller = initEndurancePoller();
+
+  if (options.intervalMs) {
+    try {
+      poller.updateInterval(options.intervalMs);
+    } catch (error) {
+      console.warn('Invalid endurance interval requested:', error.message);
+    }
+  }
+
+  const payload = await poller.startWithImmediate();
+  return {
+    running: poller.isRunning(),
+    payload: payload || poller.getLastPayload()
+  };
+});
+
+ipcMain.handle('endurance-stop', async () => {
+  if (endurancePoller) {
+    endurancePoller.stop();
+  }
+  return { running: endurancePoller ? endurancePoller.isRunning() : false };
+});
+
+ipcMain.handle('endurance-status', async () => {
+  if (!endurancePoller) {
+    return { running: false, payload: null };
+  }
+  return { running: endurancePoller.isRunning(), payload: endurancePoller.getLastPayload() };
+});
+
+ipcMain.handle('endurance-refresh', async () => {
+  const poller = initEndurancePoller();
+  const payload = await poller.pollOnce();
+  return {
+    running: poller.isRunning(),
+    payload: payload || poller.getLastPayload()
+  };
+});
+
+// Leaderboard polling controls
+ipcMain.handle('leaderboard-start', async (event, options = {}) => {
+  const poller = initLeaderboardPoller();
+
+  if (options.intervalMs) {
+    try {
+      poller.updateInterval(options.intervalMs);
+    } catch (error) {
+      console.warn('Invalid leaderboard interval requested:', error.message);
+    }
+  }
+
+  const payload = await poller.startWithImmediate();
+  return {
+    running: poller.isRunning(),
+    payload: payload || poller.getLastPayload()
+  };
+});
+
+ipcMain.handle('leaderboard-stop', async () => {
+  if (leaderboardPoller) {
+    leaderboardPoller.stop();
+  }
+  return { running: leaderboardPoller ? leaderboardPoller.isRunning() : false };
+});
+
+ipcMain.handle('leaderboard-status', async () => {
+  if (!leaderboardPoller) {
+    return { running: false, payload: null };
+  }
+  return {
+    running: leaderboardPoller.isRunning(),
+    payload: leaderboardPoller.getLastPayload()
+  };
+});
+
+ipcMain.handle('leaderboard-refresh', async () => {
+  const poller = initLeaderboardPoller();
+  const payload = await poller.pollOnce();
+  return {
+    running: poller.isRunning(),
+    payload: payload || poller.getLastPayload()
+  };
 });

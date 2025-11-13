@@ -113,15 +113,58 @@
         </div>
       </div>
 
-      <!-- Competitor times (optional section) -->
-      <div class="competitor-section">
-        <div class="panel-header">
-          <h3>Competitor Times</h3>
-          <button id="importCompetitorBtn" class="btn-icon" title="Import times">📁</button>
+      <!-- Endurance grid section -->
+      <div class="competitor-section endurance-section">
+        <div class="panel-header endurance-header">
+          <h3>Race Results</h3>
+          <div class="endurance-controls">
+            <span id="enduranceStatusText" class="status-chip">Endurance stopped</span>
+            <span id="leaderboardStatusText" class="status-chip">Leaderboard stopped</span>
+            <span id="enduranceAsOf" class="timestamp-chip">--</span>
+            <span id="leaderboardAsOf" class="timestamp-chip">--</span>
+            <select id="trackedCarSelect" class="tracked-car-select">
+              <option value="">Track car...</option>
+            </select>
+            <button id="toggleRaceTrackingBtn" class="btn btn-secondary btn-compact" title="Start endurance and leaderboard polling">Start Tracking</button>
+          </div>
         </div>
-        <div class="competitor-container">
-          <div id="competitorList" class="competitor-list">
-            <div class="empty-state">No competitor data loaded</div>
+        <div class="tracked-car-card" id="trackedCarSummary">
+          <div class="empty-state">Select a car to track</div>
+        </div>
+        <div class="race-tabs" role="tablist">
+          <button class="race-tab active" data-target="endurancePanel">Endurance Grid</button>
+          <button class="race-tab" data-target="leaderboardPanel">Leaderboard</button>
+        </div>
+        <div class="race-tab-panels">
+          <div class="race-panel active" id="endurancePanel">
+            <div class="competitor-container endurance-table-container">
+              <table class="endurance-table" id="enduranceTable">
+                <thead>
+                  <tr>
+                    <th>Pos</th>
+                    <th>Car #</th>
+                    <th>School</th>
+                    <th>Team</th>
+                    <th>Comments</th>
+                  </tr>
+                </thead>
+                <tbody id="enduranceTableBody">
+                  <tr class="empty-state-row"><td colspan="5">No endurance data yet</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="race-panel" id="leaderboardPanel">
+            <div class="competitor-container endurance-table-container">
+              <table class="endurance-table" id="leaderboardTable">
+                <thead id="leaderboardHead">
+                  <tr><th colspan="5">Leaderboard data not loaded</th></tr>
+                </thead>
+                <tbody id="leaderboardTableBody">
+                  <tr class="empty-state-row"><td colspan="5">No leaderboard data yet</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

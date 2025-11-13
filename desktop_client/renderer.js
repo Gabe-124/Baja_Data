@@ -12,6 +12,19 @@ const lapManager = new LapManager();
 // UI state
 let isConnected = false;
 let currentTelemetry = null;
+const enduranceState = {
+  running: false,
+  lastPayload: null
+};
+
+const leaderboardState = {
+  running: false,
+  lastPayload: null
+};
+
+const raceState = {
+  trackedCar: ''
+};
 
 /**
  * Initialize the application
@@ -37,9 +50,44 @@ async function init() {
   // Set up error listener
   window.electronAPI.onConnectionError(handleConnectionError);
 
+  // Endurance polling bridges
+  window.electronAPI.onEnduranceData(handleEnduranceData);
+  window.electronAPI.onEnduranceStatus(handleEnduranceStatus);
+  window.electronAPI.onEnduranceError(handleEnduranceError);
+
+  // Leaderboard polling bridges
+  window.electronAPI.onLeaderboardData(handleLeaderboardData);
+  window.electronAPI.onLeaderboardStatus(handleLeaderboardStatus);
+  window.electronAPI.onLeaderboardError(handleLeaderboardError);
+
   // Set up lap manager callbacks
   lapManager.onLapComplete = handleLapComplete;
   lapManager.onCurrentTimeUpdate = handleCurrentTimeUpdate;
+
+  // Sync current endurance status/payload
+  try {
+    const status = await window.electronAPI.getEnduranceStatus();
+    if (status) {
+      handleEnduranceStatus(status);
+      if (status.payload) {
+        handleEnduranceData(status.payload);
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to fetch endurance status:', error);
+  }
+
+  try {
+    const status = await window.electronAPI.getLeaderboardStatus();
+    if (status) {
+      handleLeaderboardStatus(status);
+      if (status.payload) {
+        handleLeaderboardData(status.payload);
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to fetch leaderboard status:', error);
+  }
 
   console.log('Initialization complete');
 }
@@ -158,8 +206,34 @@ function setupEventListeners() {
     }
   });
 
-  // Import competitor data
-  document.getElementById('importCompetitorBtn').addEventListener('click', importCompetitorData);
+  // Endurance controls
+  const toggleRaceTrackingBtn = document.getElementById('toggleRaceTrackingBtn');
+  if (toggleRaceTrackingBtn) {
+    toggleRaceTrackingBtn.addEventListener('click', toggleRaceTracking);
+    updateRaceTrackingButton();
+  }
+
+  const trackedCarSelect = document.getElementById('trackedCarSelect');
+  if (trackedCarSelect) {
+    trackedCarSelect.addEventListener('change', (event) => {
+      raceState.trackedCar = event.target.value || '';
+      updateTrackedCarSummary();
+      updateEnduranceTable();
+      updateLeaderboardTable();
+    });
+  }
+
+  document.querySelectorAll('.race-tab').forEach((button) => {
+    button.addEventListener('click', () => {
+      const target = button.dataset.target;
+      if (!target) return;
+
+      document.querySelectorAll('.race-tab').forEach((btn) => btn.classList.toggle('active', btn === button));
+      document.querySelectorAll('.race-panel').forEach((panel) => {
+        panel.classList.toggle('active', panel.id === target);
+      });
+    });
+  });
 
   // Disable auto-center when user manually pans the map
   trackMap.map.on('drag', () => {
@@ -417,53 +491,486 @@ function updateBestLapDisplay() {
   }
 }
 
-/**
- * Import competitor data from file
- */
-function importCompetitorData() {
-  // TODO: Implement file picker and CSV parsing
-  // For now, show a placeholder
-  alert('Competitor data import feature coming soon!\n\nYou will be able to import CSV files with competitor lap times from Baja SAE events.');
-  
-  // Example of how competitor data could be displayed:
-  const exampleData = [
-    { name: 'Team 1', bestTime: 125340 },
-    { name: 'Team 2', bestTime: 127890 },
-    { name: 'Team 3', bestTime: 129560 }
-  ];
-  
-  displayCompetitorData(exampleData);
+async function toggleRaceTracking() {
+  const toggleBtn = document.getElementById('toggleRaceTrackingBtn');
+  if (toggleBtn) toggleBtn.disabled = true;
+
+  const wasEnduranceRunning = enduranceState.running;
+  const wasLeaderboardRunning = leaderboardState.running;
+  const anyRunning = enduranceState.running || leaderboardState.running;
+  let failureScope = null;
+
+  try {
+    if (anyRunning) {
+      const ops = [];
+
+      if (enduranceState.running) {
+        ops.push({
+          type: 'endurance',
+          promise: window.electronAPI.stopEndurancePolling()
+        });
+      }
+
+      if (leaderboardState.running) {
+        ops.push({
+          type: 'leaderboard',
+          promise: window.electronAPI.stopLeaderboardPolling()
+        });
+      }
+
+      const settled = await Promise.allSettled(ops.map((op) => op.promise));
+      settled.forEach((result, index) => {
+        const op = ops[index];
+        if (!op) return;
+        const type = op.type;
+        if (result.status === 'fulfilled' && result.value) {
+          if (type === 'endurance') handleEnduranceStatus(result.value);
+          else handleLeaderboardStatus(result.value);
+        } else if (result.status === 'rejected') {
+          const error = result.reason;
+          if (type === 'endurance') handleEnduranceError(error?.message || String(error));
+          else handleLeaderboardError(error?.message || String(error));
+        }
+      });
+    } else {
+      try {
+        if (!enduranceState.running) {
+          failureScope = 'endurance';
+          const enduranceResult = await window.electronAPI.startEndurancePolling();
+          if (enduranceResult) {
+            handleEnduranceStatus(enduranceResult);
+            if (enduranceResult.payload) handleEnduranceData(enduranceResult.payload);
+          }
+        }
+
+        if (!leaderboardState.running) {
+          failureScope = 'leaderboard';
+          const leaderboardResult = await window.electronAPI.startLeaderboardPolling();
+          if (leaderboardResult) {
+            handleLeaderboardStatus(leaderboardResult);
+            if (leaderboardResult.payload) handleLeaderboardData(leaderboardResult.payload);
+          }
+        }
+
+        failureScope = null;
+      } catch (error) {
+        console.error('Failed to start race tracking:', error);
+
+        if (!wasEnduranceRunning && enduranceState.running) {
+          try {
+            const rollback = await window.electronAPI.stopEndurancePolling();
+            if (rollback) handleEnduranceStatus(rollback);
+          } catch (stopError) {
+            console.error('Failed to roll back endurance polling:', stopError);
+          }
+        }
+
+        if (!wasLeaderboardRunning && leaderboardState.running) {
+          try {
+            const rollback = await window.electronAPI.stopLeaderboardPolling();
+            if (rollback) handleLeaderboardStatus(rollback);
+          } catch (stopError) {
+            console.error('Failed to roll back leaderboard polling:', stopError);
+          }
+        }
+
+        throw error;
+      }
+    }
+  } catch (error) {
+    console.error('Failed to toggle race tracking:', error);
+    const message = error?.message || String(error);
+    if (!failureScope || failureScope === 'endurance') {
+      handleEnduranceError(message);
+    }
+    if (!failureScope || failureScope === 'leaderboard') {
+      handleLeaderboardError(message);
+    }
+  } finally {
+    if (toggleBtn) toggleBtn.disabled = false;
+    updateRaceTrackingButton();
+  }
 }
 
-/**
- * Display competitor lap times
- * @param {Array} competitors - Array of competitor objects
- */
-function displayCompetitorData(competitors) {
-  const container = document.getElementById('competitorList');
-  
-  if (!competitors || competitors.length === 0) {
-    container.innerHTML = '<div class="empty-state">No competitor data loaded</div>';
+function handleEnduranceStatus(status) {
+  if (!status) return;
+  enduranceState.running = !!status.running;
+  updateEnduranceStatusUI();
+}
+
+function handleLeaderboardStatus(status) {
+  if (!status) return;
+  leaderboardState.running = !!status.running;
+  updateLeaderboardStatusUI();
+}
+
+function handleEnduranceData(payload) {
+  if (!payload) return;
+  enduranceState.lastPayload = payload;
+  updateEnduranceMeta();
+  updateTrackedCarOptions();
+  updateEnduranceTable();
+  updateTrackedCarSummary();
+}
+
+function handleLeaderboardData(payload) {
+  if (!payload) return;
+  leaderboardState.lastPayload = payload;
+  updateLeaderboardMeta();
+  updateTrackedCarOptions();
+  updateLeaderboardTable();
+  updateTrackedCarSummary();
+}
+
+function handleEnduranceError(message) {
+  console.error('Endurance polling error:', message);
+  const statusEl = document.getElementById('enduranceStatusText');
+  if (statusEl) {
+    statusEl.textContent = `Endurance error: ${message}`;
+    statusEl.classList.remove('active');
+    statusEl.classList.add('error');
+  }
+  updateRaceTrackingButton();
+}
+
+function handleLeaderboardError(message) {
+  console.error('Leaderboard polling error:', message);
+  const statusEl = document.getElementById('leaderboardStatusText');
+  if (statusEl) {
+    statusEl.textContent = `Leaderboard error: ${message}`;
+    statusEl.classList.remove('active');
+    statusEl.classList.add('error');
+  }
+  updateRaceTrackingButton();
+}
+
+function updateEnduranceStatusUI() {
+  const statusEl = document.getElementById('enduranceStatusText');
+  if (statusEl) {
+    statusEl.classList.remove('error');
+    statusEl.textContent = enduranceState.running ? 'Endurance active' : 'Endurance stopped';
+    statusEl.classList.toggle('active', enduranceState.running);
+  }
+  updateRaceTrackingButton();
+}
+
+function updateLeaderboardStatusUI() {
+  const statusEl = document.getElementById('leaderboardStatusText');
+  if (statusEl) {
+    statusEl.classList.remove('error');
+    statusEl.textContent = leaderboardState.running ? 'Leaderboard active' : 'Leaderboard stopped';
+    statusEl.classList.toggle('active', leaderboardState.running);
+  }
+  updateRaceTrackingButton();
+}
+
+function updateRaceTrackingButton() {
+  const toggleBtn = document.getElementById('toggleRaceTrackingBtn');
+  if (!toggleBtn) return;
+
+  const anyRunning = enduranceState.running || leaderboardState.running;
+  toggleBtn.textContent = anyRunning ? 'Stop Tracking' : 'Start Tracking';
+  toggleBtn.title = anyRunning
+    ? 'Stop endurance and leaderboard polling'
+    : 'Start endurance and leaderboard polling';
+  toggleBtn.classList.toggle('btn-primary', !anyRunning);
+  toggleBtn.classList.toggle('btn-secondary', anyRunning);
+}
+
+function updateEnduranceMeta() {
+  const asOfEl = document.getElementById('enduranceAsOf');
+  if (!asOfEl) return;
+
+  const meta = enduranceState.lastPayload?.meta || {};
+  if (meta.finalAsOf) {
+    asOfEl.textContent = `Endurance • Final as of ${meta.finalAsOf}`;
+  } else if (meta.scrapedAt) {
+    asOfEl.textContent = `Endurance • Updated ${formatLocalTimestamp(meta.scrapedAt)}`;
+  } else {
+    asOfEl.textContent = 'Endurance • --';
+  }
+}
+
+function updateLeaderboardMeta() {
+  const asOfEl = document.getElementById('leaderboardAsOf');
+  if (!asOfEl) return;
+
+  const meta = leaderboardState.lastPayload?.meta || {};
+  const eventName = meta.event ? meta.event.name : null;
+  const label = eventName ? `Leaderboard (${eventName})` : 'Leaderboard';
+
+  if (meta.scrapedAt) {
+    asOfEl.textContent = `${label} • Updated ${formatLocalTimestamp(meta.scrapedAt)}`;
+  } else {
+    asOfEl.textContent = `${label} • --`;
+  }
+}
+
+function updateTrackedCarOptions() {
+  const select = document.getElementById('trackedCarSelect');
+  if (!select) return;
+
+  const cars = new Set();
+  if (Array.isArray(enduranceState.lastPayload?.data)) {
+    enduranceState.lastPayload.data.forEach((row) => {
+      const car = sanitizeCarNumber(row['Car #']);
+      if (car) cars.add(car);
+    });
+  }
+  if (Array.isArray(leaderboardState.lastPayload?.data)) {
+    leaderboardState.lastPayload.data.forEach((row) => {
+      // Attempt to find a column that looks like car number
+      const car = sanitizeCarNumber(row['Car #'] || row['Car'] || row['Car\n#'] || row['Car\u00a0#']);
+      if (car) cars.add(car);
+    });
+  }
+
+  const desiredValues = [''].concat(Array.from(cars).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))); // lexical numeric sort
+  const currentValues = Array.from(select.options).map((opt) => opt.value);
+  const arraysMatch = desiredValues.length === currentValues.length && desiredValues.every((val, idx) => val === currentValues[idx]);
+
+  if (!arraysMatch) {
+    select.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Track car...';
+    select.appendChild(placeholder);
+
+    desiredValues.slice(1).forEach((car) => {
+      const option = document.createElement('option');
+      option.value = car;
+      option.textContent = `Car ${car}`;
+      select.appendChild(option);
+    });
+  }
+
+  if (raceState.trackedCar && desiredValues.includes(raceState.trackedCar)) {
+    select.value = raceState.trackedCar;
+  } else {
+    select.value = '';
+    raceState.trackedCar = '';
+  }
+}
+
+function updateEnduranceTable() {
+  const tbody = document.getElementById('enduranceTableBody');
+  if (!tbody) return;
+
+  const rows = enduranceState.lastPayload?.data;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    tbody.innerHTML = '<tr class="empty-state-row"><td colspan="5">No endurance data yet</td></tr>';
+    return;
+  }
+
+  const tracked = raceState.trackedCar;
+  const sorted = reorderForTracked(rows, tracked, (row) => sanitizeCarNumber(row['Car #']));
+
+  const fragment = document.createDocumentFragment();
+  sorted.forEach((row) => {
+    const tr = document.createElement('tr');
+    const car = sanitizeCarNumber(row['Car #']);
+    if (tracked && car === tracked) {
+      tr.classList.add('tracked');
+    }
+
+    ['Position', 'Car #', 'School', 'Team', 'Comments'].forEach((key) => {
+      const td = document.createElement('td');
+      td.textContent = row[key] || '';
+      tr.appendChild(td);
+    });
+
+    fragment.appendChild(tr);
+  });
+
+  tbody.innerHTML = '';
+  tbody.appendChild(fragment);
+}
+
+function updateLeaderboardTable() {
+  const thead = document.getElementById('leaderboardHead');
+  const tbody = document.getElementById('leaderboardTableBody');
+  if (!thead || !tbody) return;
+
+  const payload = leaderboardState.lastPayload;
+  const headers = payload?.meta?.headers || [];
+  const rows = payload?.data;
+
+  if (!headers.length || !Array.isArray(rows) || rows.length === 0) {
+    const colSpan = headers.length ? headers.length : 5;
+    thead.innerHTML = `<tr><th colspan="${colSpan}">Leaderboard data not loaded</th></tr>`;
+    tbody.innerHTML = `<tr class="empty-state-row"><td colspan="${colSpan}">No leaderboard data yet</td></tr>`;
+    return;
+  }
+
+  thead.innerHTML = '';
+  const headerRow = document.createElement('tr');
+  headers.forEach((header) => {
+    const th = document.createElement('th');
+    th.textContent = header;
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+
+  const tracked = raceState.trackedCar;
+  const carAccessor = (row) => {
+    // Attempt to find the car number column
+    const keys = ['Car #', 'Car', 'Car\n#', 'Car\u00a0#'];
+    for (const key of keys) {
+      if (key in row) {
+        const value = sanitizeCarNumber(row[key]);
+        if (value) return value;
+      }
+    }
+    return '';
+  };
+
+  const sorted = reorderForTracked(rows, tracked, carAccessor);
+
+  const fragment = document.createDocumentFragment();
+  sorted.forEach((row) => {
+    const tr = document.createElement('tr');
+    const car = carAccessor(row);
+    if (tracked && car === tracked) {
+      tr.classList.add('tracked');
+    }
+
+    headers.forEach((header) => {
+      const td = document.createElement('td');
+      td.textContent = row[header] || '';
+      tr.appendChild(td);
+    });
+
+    fragment.appendChild(tr);
+  });
+
+  tbody.innerHTML = '';
+  tbody.appendChild(fragment);
+}
+
+function updateTrackedCarSummary() {
+  const container = document.getElementById('trackedCarSummary');
+  if (!container) return;
+
+  const tracked = raceState.trackedCar;
+  if (!tracked) {
+    container.innerHTML = '<div class="empty-state">Select a car to track</div>';
+    return;
+  }
+
+  const enduranceMatch = enduranceState.lastPayload?.data?.find((row) => sanitizeCarNumber(row['Car #']) === tracked);
+
+  const carAccessor = (row) => {
+    const keys = ['Car #', 'Car', 'Car\n#', 'Car\u00a0#'];
+    for (const key of keys) {
+      if (row[key]) return sanitizeCarNumber(row[key]);
+    }
+    return '';
+  };
+  const leaderboardMatch = leaderboardState.lastPayload?.data?.find((row) => carAccessor(row) === tracked);
+
+  if (!enduranceMatch && !leaderboardMatch) {
+    container.innerHTML = '<div class="empty-state">Car not present in latest results</div>';
     return;
   }
 
   container.innerHTML = '';
 
-  competitors.forEach((competitor, index) => {
-    const div = document.createElement('div');
-    div.className = 'competitor-item';
+  const title = document.createElement('div');
+  title.className = 'tracked-title';
+  title.textContent = 'Tracking car';
 
-    const name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = `${index + 1}. ${competitor.name}`;
+  const value = document.createElement('div');
+  value.className = 'tracked-value';
+  value.textContent = `#${tracked}`;
 
-    const time = document.createElement('span');
-    time.className = 'time';
-    time.textContent = lapManager.formatTime(competitor.bestTime);
+  const subgrid = document.createElement('div');
+  subgrid.className = 'tracked-subgrid';
 
-    div.appendChild(name);
-    div.appendChild(time);
-    container.appendChild(div);
+  if (enduranceMatch) {
+    const block = document.createElement('div');
+    block.className = 'summary-block';
+    const heading = document.createElement('div');
+    heading.className = 'tracked-title';
+    heading.textContent = 'Endurance';
+
+    const position = document.createElement('div');
+    position.className = 'tracked-detail';
+    position.textContent = enduranceMatch.Position ? `Position: ${enduranceMatch.Position}` : 'Position: --';
+
+    const teamParts = [enduranceMatch.Team, enduranceMatch.School].filter(Boolean);
+    const teamInfo = document.createElement('div');
+    teamInfo.className = 'tracked-detail';
+    teamInfo.textContent = teamParts.length ? teamParts.join(' • ') : 'Team: --';
+
+    block.appendChild(heading);
+    block.appendChild(position);
+    block.appendChild(teamInfo);
+
+    if (enduranceMatch.Comments) {
+      const comments = document.createElement('div');
+      comments.className = 'tracked-detail';
+      comments.textContent = `Notes: ${enduranceMatch.Comments}`;
+      block.appendChild(comments);
+    }
+
+    subgrid.appendChild(block);
+  }
+
+  if (leaderboardMatch) {
+    const block = document.createElement('div');
+    block.className = 'summary-block';
+    const heading = document.createElement('div');
+    heading.className = 'tracked-title';
+    const eventName = leaderboardState.lastPayload?.meta?.event?.name || 'Leaderboard';
+    heading.textContent = eventName;
+
+    const headers = leaderboardState.lastPayload?.meta?.headers || [];
+    headers.slice(0, 3).forEach((header) => {
+      const detail = document.createElement('div');
+      detail.className = 'tracked-detail';
+      detail.textContent = `${header}: ${leaderboardMatch[header] || '--'}`;
+      block.appendChild(detail);
+    });
+
+    subgrid.appendChild(block);
+  }
+
+  container.appendChild(title);
+  container.appendChild(value);
+  container.appendChild(subgrid);
+}
+
+function reorderForTracked(items, tracked, accessor) {
+  if (!tracked) return items.slice();
+  const trackedItems = [];
+  const others = [];
+
+  items.forEach((item) => {
+    if (accessor(item) === tracked) trackedItems.push(item);
+    else others.push(item);
+  });
+
+  return trackedItems.concat(others);
+}
+
+function sanitizeCarNumber(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+}
+
+function formatLocalTimestamp(value) {
+  if (!value) return '--';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
   });
 }
 
