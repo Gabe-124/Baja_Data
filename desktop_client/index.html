@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Baja Telemetry Client</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Leaflet.draw CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Header bar with connection controls -->
+  <header class="app-header">
+    <div class="header-left">
+      <h1>🏁 Baja Telemetry</h1>
+      <div class="connection-status" id="connectionStatus">
+        <span class="status-dot disconnected"></span>
+        <span class="status-text">Disconnected</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <select id="portSelect" class="port-select">
+        <option value="">Select LoRa Port...</option>
+      </select>
+      <button id="connectBtn" class="btn btn-primary">Connect</button>
+      <button id="disconnectBtn" class="btn btn-secondary" disabled>Disconnect</button>
+    </div>
+  </header>
+
+  <!-- Main content area -->
+  <div class="app-container">
+    <!-- Left panel: Track map -->
+    <div class="panel map-panel">
+      <div class="panel-header">
+        <h2>Track Map</h2>
+        <div class="map-controls">
+          <button id="centerMapBtn" class="btn-icon" title="Center on car">📍</button>
+          <button id="resetTrackBtn" class="btn-icon" title="Clear track">🔄</button>
+          <!-- Toggle between map tile and satellite imagery -->
+          <button id="toggleMapTypeBtn" class="btn-icon" title="Toggle satellite / map">🛰️</button>
+          <button id="drawTrackBtn" class="btn-icon" title="Draw track">✏️</button>
+          <button id="editTrackBtn" class="btn-icon" title="Edit track">🛠️</button>
+          <button id="saveTrackBtn" class="btn-icon" title="Save track">💾</button>
+          <button id="importTrackBtn" class="btn-icon" title="Import track">📁</button>
+        </div>
+      </div>
+      <div id="map" class="map-container"></div>
+      <div class="map-footer">
+        <div class="telemetry-mini">
+          <span>📡 <span id="gpsStatus">No Fix</span></span>
+          <span>🛰️ <span id="satCount">0</span> sats</span>
+          <span>📏 HDOP: <span id="hdopValue">--</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right panel: Timing and data -->
+    <div class="panel info-panel">
+      <!-- Current lap timing -->
+      <div class="timing-section">
+        <div class="panel-header">
+          <h2>Current Lap</h2>
+        </div>
+        <div class="current-lap-display">
+          <div class="lap-number">Lap <span id="currentLapNum">--</span></div>
+          <div class="lap-time" id="currentLapTime">00:00.000</div>
+          
+          <!-- Delta display (time ahead/behind best lap) -->
+          <div class="delta-container">
+            <div class="delta-label">Delta to Best</div>
+            <div class="delta-value" id="deltaValue">--</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Best lap info -->
+      <div class="best-lap-section">
+        <h3>Best Lap</h3>
+        <div class="best-lap-info">
+          <div class="info-row">
+            <span class="label">Time:</span>
+            <span class="value" id="bestLapTime">--</span>
+          </div>
+          <div class="info-row">
+            <span class="label">Lap #:</span>
+            <span class="value" id="bestLapNum">--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lap times table -->
+      <div class="lap-times-section">
+        <div class="panel-header">
+          <h3>Lap Times</h3>
+          <button id="clearLapsBtn" class="btn-icon" title="Clear all laps">🗑️</button>
+        </div>
+        <div class="lap-times-container">
+          <table class="lap-times-table" id="lapTimesTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Time</th>
+                <th>Delta</th>
+              </tr>
+            </thead>
+            <tbody id="lapTimesBody">
+              <tr class="empty-state">
+                <td colspan="3">No laps recorded yet</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Competitor times (optional section) -->
+      <div class="competitor-section">
+        <div class="panel-header">
+          <h3>Competitor Times</h3>
+          <button id="importCompetitorBtn" class="btn-icon" title="Import times">📁</button>
+        </div>
+        <div class="competitor-container">
+          <div id="competitorList" class="competitor-list">
+            <div class="empty-state">No competitor data loaded</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load external libraries -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet.draw -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+  <!-- togeojson for GPX -> GeoJSON conversion -->
+  <script src="https://unpkg.com/togeojson@0.16.0/dist/togeojson.min.js"></script>
+  
+  <!-- Load application scripts -->
+  <script src="lap_manager.js"></script>
+  <script src="track_map.js"></script>
+  <script src="renderer.js"></script>
+
+  <!-- Hidden file input for track import -->
+  <input type="file" id="trackFileInput" accept=".geojson,application/geo+json,.json,.gpx" style="display:none" />
+</body>
+</html>

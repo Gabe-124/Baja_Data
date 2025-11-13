@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Telemetry Viewer</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>#map{height:80vh} .hud{font-family:monospace;padding:6px}</style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="hud">
+    Speed: <span id="speed">0</span> m/s — RPM: <span id="rpm">0</span>
+    — Lap delta: <span id="delta">N/A</span>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([40.0, -74.0], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
+    const poly = L.polyline([], {weight:4}).addTo(map);
+    const marker = L.circleMarker([0,0], {radius:6}).addTo(map);
+
+    // config: websocket endpoint
+    const ws = new WebSocket("ws://"+location.hostname+":8000/ws");
+    let lastLapTime = null;
+    let lapStartTime = null;
+    let lastLap = null;
+
+    ws.onmessage = (ev) => {
+      const d = JSON.parse(ev.data);
+      if (!d.lat || !d.lon) return;
+      const pos = [d.lat, d.lon];
+      poly.addLatLng(pos);
+      marker.setLatLng(pos);
+      map.panTo(pos);
+      document.getElementById('speed').innerText = (d.speed_m_s||0).toFixed(1);
+      document.getElementById('rpm').innerText = (d.rpm||0);
+
+      // VERY simple lap detection example: cross near a lat/lon point (set to startFinish)
+      const sfx = 40.1234, sfy = -74.1234; // change this to your S/F coords
+      const R = 6371000;
+      function dist(a,b){ const toRad = Math.PI/180; const dLat=(a[0]-b[0])*toRad; const dLon=(a[1]-b[1])*toRad;
+        const lat1=a[0]*toRad, lat2=b[0]*toRad;
+        const aa = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+        return 2*R*Math.asin(Math.sqrt(aa));
+      }
+
+      const dSF = dist(pos, [sfx,sfy]);
+      if (dSF < 10) { // within 10m of S/F
+        const now = Date.now();
+        if (!lapStartTime || now - lapStartTime > 10000) { // simple hysteresis 10s
+          const lapTime = lapStartTime ? (now - lapStartTime)/1000.0 : null;
+          if (lapTime) {
+            const delta = lastLapTime ? (lapTime - lastLapTime).toFixed(3) : "N/A";
+            document.getElementById('delta').innerText = delta;
+            lastLapTime = lapTime;
+          } else {
+            document.getElementById('delta').innerText = "First lap";
+            lastLapTime = lapTime;
+          }
+          lapStartTime = now;
+        }
+      }
+    };
+  </script>
+</body>
+</html>
