@@ -1,42 +1,129 @@
-# Raspberry Pi -> LoRa sender (for Baja team)
+# Raspberry Pi → LoRa Sender (Baja Telemetry Transmitter)
 
-This small Python project reads position/IMU data from a GPS+IMU (SparkFun NEO-M8U) and sends compact JSON packets over a LoRa HAT attached to the Raspberry Pi's UART.
+This Python project reads GPS/IMU data and sends compact JSON telemetry packets over LoRa radio to the desktop receiver. It's optimized for Raspberry Pi 3A+ and can run in simulation mode with fake GPS data.
 
-What this repo provides
-- `main.py` — CLI: reads GPS/IMU and sends packets periodically to the LoRa HAT via serial.
-- `gps_reader.py` — GPS reader with a serial (NMEA) backend and an I2C stub you can extend.
-- `lora_serial.py` — Simple transparent-serial LoRa sender (writes payload bytes to UART).
-- `config.py` — default configuration you can edit.
-- `requirements.txt` — Python deps.
+## What this repo provides
 
-Default assumptions
-- The NEO-M8U GPS is connected via Qwiic/I2C (default bus 1, addr 0x42). The code parses UBX messages (NAV-POSLLH) over I2C.
-- If your GPS is wired to a UART instead, you can run the serial backend by passing `--gps-backend serial`.
-- The Waveshare LoRa HAT is in transparent UART mode (writing raw bytes to the HAT's UART transmits them over the air).
-- Frequency: 915 MHz (US). LoRa parameters (SF/BW) should be configured on the HAT firmware if required.
+- **`main.py`** — Main CLI: reads GPS/IMU and sends JSON packets periodically over LoRa.
+- **`gps_reader.py`** — GPS reader with multiple backends:
+  - `SerialGPS` — Read NMEA sentences over UART (simple, widely compatible)
+  - `I2CGPS` — Read UBX binary messages over I2C/Qwiic (more accurate)
+  - `SimulatedGPS` — Generate fake GPS data for testing (default: Hoboken, NJ)
+- **`lora_serial.py`** — LoRa transmitter interface via transparent UART serial.
+- **`config.py`** — Configuration (ports, baud rates, timing).
+- **`requirements.txt`** — Minimal Python dependencies for Pi3A+.
 
-Quick start (on the Pi)
-1. Install system prerequisites and enable serial in raspi-config (enable UART, disable console if needed).
-2. Create a virtualenv and install requirements:
+## Hardware Setup (Assumed)
+
+- **GPS Module:** SparkFun NEO-M8U connected via Qwiic/I2C (default) or UART serial
+- **LoRa HAT:** Waveshare SX1262 connected to Pi's UART (/dev/ttyAMA0)
+- **LoRa Mode:** Transparent UART mode (raw bytes transmitted as-is)
+- **Frequency:** 915 MHz (US/Americas)
+
+## Quick Start on Raspberry Pi 3A+
+
+### 1. Prepare the system
 
 ```bash
+# Enable UART in raspi-config (if using serial GPS or LoRa)
+sudo raspi-config
+# Interface Options → Serial Port → Yes for serial hardware, No for console
+```
+
+### 2. Install Python environment
+
+```bash
+cd /path/to/raspi_lora
 python3 -m venv venv
-. venv/bin/activate
+source venv/bin/activate  # On macOS/Linux
 pip install -r requirements.txt
 ```
 
-3. Run the sender (default: I2C GPS, send every 1 second):
+### 3. Test with simulation mode (no hardware needed)
 
 ```bash
-python main.py --lora-port /dev/ttyAMA0 --interval 1
+# Run in simulation mode with fake GPS data (Hoboken, NJ)
+python main.py --simulate --interval 1
 ```
 
-Simulation mode
-You can run `python main.py --simulate` to send fake GPS/IMU packets (useful before hardware is wired).
+Output:
+```
+2025-11-13 12:34:56,789 INFO raspi_lora: Starting main loop: sending every 0:00:01
+2025-11-13 12:34:56,890 INFO raspi_lora: Sent packet (92 bytes) ok=True: {"ts":"2025-11-13T12:34:56Z","lat":40.7454,"lon":-74.0251,"alt":5.0,"fix":1,"sats":10,"hdop":0.8}
+```
 
-Next steps / Questions for you
-- Is the NEO-M8U wired via Qwiic (I2C) or to a UART on the Pi?
-- Is the LoRa HAT already configured in transparent UART mode, or does it expect AT commands? If AT commands, please share the HAT's command reference or example send command (e.g. `AT+SEND` style).
-- Do you want any encryption or signing of packets?
+### 4. Run with real hardware (I2C GPS)
 
-When you confirm wiring and LoRa mode I can update the code to use I2C/UBX and/or AT command flows if required.
+```bash
+# Connect real GPS and LoRa HAT, then:
+python main.py --lora-port /dev/ttyAMA0 --interval 1 --gps-backend i2c
+```
+
+### 5. Run with serial GPS (if wired to UART instead)
+
+```bash
+python main.py --gps-backend serial --gps-port /dev/serial0 --lora-port /dev/ttyAMA0 --interval 1
+```
+
+## Configuration
+
+Edit `config.py` to change:
+- GPS backend type (I2C, serial, or simulated)
+- Serial ports and baud rates
+- Transmission interval (default: 1 second)
+- I2C bus and address (for Qwiic GPS)
+
+## GPS Data Location (Fake Mode)
+
+When running with `--simulate`, fake GPS data is centered near:
+- **Location:** Stevens Institute of Technology, Hoboken, NJ
+- **Coordinates:** 40.7454°N, 74.0251°W
+- **Movement:** Simulates vehicle driving north/east at slow speed
+
+Modify `base_lat` and `base_lon` in `SimulatedGPS.__init__()` in `gps_reader.py` to change location.
+
+## Packet Format
+
+Telemetry packets sent over LoRa are minimal JSON (compressed for airtime efficiency):
+
+```json
+{
+  "ts": "2025-11-13T12:34:56Z",
+  "lat": 40.7454,
+  "lon": -74.0251,
+  "alt": 5.0,
+  "fix": 1,
+  "sats": 10,
+  "hdop": 0.8,
+  "imu": {
+    "accel": [0.1, -0.05, -9.81],
+    "gyro": [0.01, 0.01, 0.05]
+  }
+}
+```
+
+The desktop LoRa receiver (`desktop_client/lora_receiver.js`) parses these packets and displays telemetry.
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "No module named 'serial'" | Run `pip install -r requirements.txt` in the venv |
+| "Permission denied" on /dev/ttyAMA0 | Add Pi user to dialout group: `sudo usermod -a -G dialout pi` |
+| GPS stuck at "no fix" | Ensure GPS has clear sky view; outdoor placement helps. Check `config.py` timeout settings. |
+| LoRa not transmitting | Verify HAT is in transparent mode; check baud rate (115200 standard); try `--lora-port /dev/ttyS0` if using GPIO UART |
+
+## Pi3A+ Optimization Notes
+
+- **RAM:** 512 MB (tight). Avoid loading large libraries unnecessarily.
+- **Storage:** Minimal (~65 MB after Python + deps). Consider SD card speed.
+- **CPU:** Single-core, 1 GHz. Sampling every 1–2 seconds is realistic.
+- **Dependencies:** Kept to 3 minimal packages (pyserial, pynmea2, smbus2).
+- **Virtual environment:** Highly recommended to avoid system Python conflicts.
+
+## Next Steps / Integration
+
+- The desktop client (`desktop_client/main.js`) receives packets via USB LoRa and displays location on a map.
+- Extend `make_packet()` in `main.py` to include additional telemetry (temperature, pressure, battery voltage, etc.).
+- Modify `SimulatedGPS` to simulate more realistic movement patterns (curved paths, acceleration).
+

@@ -337,17 +337,22 @@ class SimulatedGPS(GPSReader):
         - Testing the transmitter/receiver pipeline
         - Developing the desktop client UI
         - Debugging without access to GPS satellites
+    
+    Default location: Stevens Institute of Technology, Hoboken, NJ
     """
     
     def __init__(self):
         """Initialize simulator with a counter."""
         self._t = 0
+        # Stevens Institute of Technology, Hoboken, NJ
+        self.base_lat = 40.7454
+        self.base_lon = -74.0251
 
     def get_fix(self):
         """Generate a fake GPS position.
         
         Creates a position that moves slightly on each call, simulating
-        a vehicle driving in a straight line.
+        a vehicle driving in a straight line near Stevens Institute of Technology.
         
         Returns:
             dict: Simulated GPS data with all fields populated
@@ -355,17 +360,18 @@ class SimulatedGPS(GPSReader):
         # Increment position counter
         self._t += 1
         
-        # Generate a position near San Francisco that moves with each call
+        # Generate a position near Stevens Institute of Technology (Hoboken, NJ)
+        # that moves with each call, simulating a vehicle on a track
         return {
             "stamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "lat": 37.7749 + (self._t * 0.0001),   # Move north
-            "lon": -122.4194 + (self._t * 0.0001), # Move east
-            "alt": 10.0 + (self._t % 5),           # Oscillating altitude
-            "fix": 1,                               # GPS fix quality
-            "num_sats": 8,                          # Satellite count
-            "hdop": 0.9,                            # Horizontal accuracy
-            "imu": {                                 # Fake IMU data
-                "accel": [0.0, 0.0, -9.8],          # Accelerometer (m/s²)
-                "gyro": [0.0, 0.0, 0.0]             # Gyroscope (rad/s)
+            "lat": self.base_lat + (self._t * 0.00005),   # Move north (slower for track simulation)
+            "lon": self.base_lon + (self._t * 0.00005),   # Move east
+            "alt": 5.0 + (self._t % 10),                  # Oscillating altitude (5-15m)
+            "fix": 1,                                      # GPS fix quality (1 = GPS)
+            "num_sats": 10,                                # Satellite count
+            "hdop": 0.8,                                   # Horizontal accuracy (good)
+            "imu": {                                        # Fake IMU data
+                "accel": [0.1, -0.05, -9.81],              # Accelerometer (m/s²)
+                "gyro": [0.01, 0.01, 0.05]                 # Gyroscope (rad/s)
             },
         }

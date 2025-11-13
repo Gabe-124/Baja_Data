@@ -1,3 +1,13 @@
+# Minimal dependencies optimized for Raspberry Pi 3A+ (512MB RAM)
+# Only include packages actually used in the active code path
+
+# Serial communication with GPS and LoRa HAT
 pyserial>=3.5
+
+# NMEA sentence parsing (only needed for SerialGPS backend)
+# Can be removed if using I2C GPS backend exclusively
 pynmea2>=1.4.0
+
+# I2C communication for Qwiic/SparkFun devices (only needed for I2CGPS backend)
+# Can be removed if using serial GPS backend exclusively
 smbus2>=0.4.0
