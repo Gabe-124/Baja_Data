@@ -9,52 +9,18 @@ Usage:
     python main.py --simulate  # Test mode without hardware
 """
 import argparse
-import json
 import logging
 import time
-from datetime import datetime
 
 from config import DEFAULT_CONFIG
 from gps_reader import SerialGPS, SimulatedGPS
 from lora_serial import LoRaSerial
+from packet import make_packet
 
 
 # Configure logging to show timestamps and log levels
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("raspi_lora")
-
-
-def make_packet(gps_data: dict) -> bytes:
-    """Convert GPS/IMU data into a compact JSON packet for transmission.
-    
-    Creates a minimal JSON structure to reduce LoRa airtime and improve transmission speed.
-    The desktop client expects this exact format.
-    
-    Args:
-        gps_data: Dictionary containing GPS fix data from the reader
-                  Expected keys: stamp, lat, lon, alt, fix, num_sats, hdop, imu (optional)
-    
-    Returns:
-        bytes: UTF-8 encoded JSON packet ready for transmission
-        
-    Example output:
-        b'{"ts":"2025-11-13T12:34:56Z","lat":37.7749,"lon":-122.4194,"alt":10.5,"fix":1,"sats":8,"hdop":0.9}'
-    """
-    pkg = {
-        "ts": gps_data.get("stamp") or datetime.utcnow().isoformat() + "Z",  # Timestamp in ISO format
-        "lat": gps_data.get("lat"),      # Latitude in degrees
-        "lon": gps_data.get("lon"),      # Longitude in degrees
-        "alt": gps_data.get("alt"),      # Altitude in meters
-        "fix": gps_data.get("fix"),      # GPS fix quality (0=no fix, 1=GPS, 2=DGPS, etc.)
-        "sats": gps_data.get("num_sats"), # Number of satellites in view
-        "hdop": gps_data.get("hdop"),    # Horizontal dilution of precision (accuracy metric)
-    }
-    # Include IMU data (accelerometer/gyro) if available from the GPS module
-    if "imu" in gps_data:
-        pkg["imu"] = gps_data["imu"]
-
-    # Use minimal JSON formatting (no spaces) to reduce packet size
-    return json.dumps(pkg, separators=(",", ":")).encode("utf-8")
 
 
 def run(args):

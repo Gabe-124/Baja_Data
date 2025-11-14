@@ -22,7 +22,8 @@ class Config:
     
     # ==================== LoRa HAT Configuration ====================
     # Serial connection to the Waveshare SX1262 LoRa HAT
-    lora_port: str = "/dev/ttyAMA0"         # UART port for LoRa HAT (may also be /dev/ttyS0)
+    # Prefer the /dev/serial0 alias so the correct UART is selected on Pi 3/4 models
+    lora_port: str = "/dev/serial0"         # Alias points to ttyAMA0 or ttyS0 depending on model
     lora_baud: int = 115200                 # Baud rate for LoRa HAT communication
     lora_transparent_mode: bool = True      # True = raw bytes, False = AT commands (not implemented)
     
