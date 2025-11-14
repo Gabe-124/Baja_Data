@@ -8,6 +8,7 @@
 // Initialize modules
 const trackMap = new TrackMap('map');
 const lapManager = new LapManager();
+const penaltiesManager = new PenaltiesManager();
 
 // UI state
 let isConnected = false;
@@ -24,6 +25,11 @@ const leaderboardState = {
 
 const raceState = {
   trackedCar: ''
+};
+
+const penaltiesState = {
+  selectedCar: '',
+  showAddModal: false
 };
 
 /**
@@ -223,17 +229,29 @@ function setupEventListeners() {
     });
   }
 
-  document.querySelectorAll('.race-tab').forEach((button) => {
-    button.addEventListener('click', () => {
-      const target = button.dataset.target;
-      if (!target) return;
-
-      document.querySelectorAll('.race-tab').forEach((btn) => btn.classList.toggle('active', btn === button));
-      document.querySelectorAll('.race-panel').forEach((panel) => {
-        panel.classList.toggle('active', panel.id === target);
-      });
+  // Penalties controls
+  const penaltiesCar = document.getElementById('penaltiesCar');
+  if (penaltiesCar) {
+    penaltiesCar.addEventListener('change', (event) => {
+      penaltiesState.selectedCar = event.target.value || '';
+      updatePenaltiesDisplay();
     });
-  });
+  }
+
+  const addPenaltyBtn = document.getElementById('addPenaltyBtn');
+  if (addPenaltyBtn) {
+    addPenaltyBtn.addEventListener('click', openAddPenaltyModal);
+  }
+
+  const exportPenaltiesBtn = document.getElementById('exportPenaltiesBtn');
+  if (exportPenaltiesBtn) {
+    exportPenaltiesBtn.addEventListener('click', exportPenalties);
+  }
+
+  const clearPenaltiesBtn = document.getElementById('clearPenaltiesBtn');
+  if (clearPenaltiesBtn) {
+    clearPenaltiesBtn.addEventListener('click', clearAllPenalties);
+  }
 
   // Disable auto-center when user manually pans the map
   trackMap.map.on('drag', () => {
@@ -611,6 +629,7 @@ function handleEnduranceData(payload) {
   updateTrackedCarOptions();
   updateEnduranceTable();
   updateTrackedCarSummary();
+  updatePenaltiesCarsSelect();
 }
 
 function handleLeaderboardData(payload) {
@@ -620,6 +639,7 @@ function handleLeaderboardData(payload) {
   updateTrackedCarOptions();
   updateLeaderboardTable();
   updateTrackedCarSummary();
+  updatePenaltiesCarsSelect();
 }
 
 function handleEnduranceError(message) {
@@ -1023,6 +1043,397 @@ async function loadConfiguration() {
   } catch (error) {
     console.error('Failed to load configuration:', error);
   }
+}
+
+/**
+ * Penalties UI Functions
+ */
+
+/**
+ * Update penalties car selector dropdown
+ */
+function updatePenaltiesCarsSelect() {
+  const select = document.getElementById('penaltiesCar');
+  if (!select) return;
+
+  // Get all unique cars from endurance and leaderboard
+  const cars = new Set();
+  
+  if (enduranceState.lastPayload?.data) {
+    enduranceState.lastPayload.data.forEach((row) => {
+      const car = sanitizeCarNumber(row['Car #']);
+      if (car) cars.add(car);
+    });
+  }
+
+  if (leaderboardState.lastPayload?.data) {
+    leaderboardState.lastPayload.data.forEach((row) => {
+      const keys = ['Car #', 'Car', 'Car\n#', 'Car\u00a0#'];
+      for (const key of keys) {
+        const car = sanitizeCarNumber(row[key]);
+        if (car) cars.add(car);
+      }
+    });
+  }
+
+  // Add cars that already have penalties
+  penaltiesManager.getAllCarsWithPenalties().forEach(car => cars.add(car));
+
+  const sortedCars = Array.from(cars).sort((a, b) => 
+    a.localeCompare(b, undefined, { numeric: true })
+  );
+
+  const desiredValues = [''].concat(sortedCars);
+  const currentValues = Array.from(select.options).map((opt) => opt.value);
+  const arraysMatch = desiredValues.length === currentValues.length && 
+    desiredValues.every((val, idx) => val === currentValues[idx]);
+
+  if (!arraysMatch) {
+    select.innerHTML = '<option value="">All cars</option>';
+    sortedCars.forEach((car) => {
+      const option = document.createElement('option');
+      option.value = car;
+      option.textContent = `Car ${car}`;
+      select.appendChild(option);
+    });
+  }
+}
+
+/**
+ * Update penalties display for selected car
+ */
+function updatePenaltiesDisplay() {
+  const content = document.getElementById('penaltiesContent');
+  if (!content) return;
+
+  const car = penaltiesState.selectedCar;
+
+  if (!car) {
+    // Show all cars with penalties
+    const allCars = penaltiesManager.getAllCarsWithPenalties();
+    if (allCars.length === 0) {
+      content.innerHTML = '<div class="empty-state">No penalties recorded yet</div>';
+      return;
+    }
+
+    content.innerHTML = '';
+    allCars.forEach(carNum => {
+      const summary = createCarPenaltiesSummary(carNum);
+      content.appendChild(summary);
+    });
+  } else {
+    // Show specific car
+    const carPenalties = penaltiesManager.getPenaltiesForCar(car);
+    const timePenalty = penaltiesManager.getTotalTimePenalty(car);
+
+    if (Object.keys(carPenalties).length === 0 && timePenalty.totalMinutes === 0 && !timePenalty.hasDQ) {
+      content.innerHTML = `<div class="empty-state">No penalties for car ${car}</div>`;
+      return;
+    }
+
+    content.innerHTML = '';
+
+    // Show summary cards
+    const summaryDiv = document.createElement('div');
+    summaryDiv.className = 'penalties-summary';
+
+    if (timePenalty.hasDQ) {
+      const card = document.createElement('div');
+      card.className = 'penalty-summary-card danger';
+      card.innerHTML = '<div class="label">Status</div><div class="value">DQ</div>';
+      summaryDiv.appendChild(card);
+    } else if (timePenalty.totalMinutes > 0) {
+      const card = document.createElement('div');
+      card.className = 'penalty-summary-card warning';
+      card.innerHTML = `<div class="label">Total Time</div><div class="value">${timePenalty.totalMinutes}m</div>`;
+      summaryDiv.appendChild(card);
+    }
+
+    // Count by type
+    for (const [type, penalties] of Object.entries(carPenalties)) {
+      const card = document.createElement('div');
+      card.className = 'penalty-summary-card';
+      const count = penalties.length;
+      card.innerHTML = `<div class="label">${type}</div><div class="value">${count}</div>`;
+      summaryDiv.appendChild(card);
+    }
+
+    content.appendChild(summaryDiv);
+
+    // Show penalties list
+    const list = document.createElement('div');
+    list.className = 'penalties-list';
+
+    for (const [type, penalties] of Object.entries(carPenalties)) {
+      penalties.forEach((penalty, index) => {
+        const item = createPenaltyItem(penalty, type, car, index);
+        list.appendChild(item);
+      });
+    }
+
+    content.appendChild(list);
+  }
+}
+
+/**
+ * Create penalty item element
+ */
+function createPenaltyItem(penalty, type, car, index) {
+  const item = document.createElement('div');
+  item.className = 'penalty-item';
+  if (penalty.penalty === 'DQ') {
+    item.classList.add('dq');
+  }
+
+  const content = document.createElement('div');
+  content.className = 'penalty-item-content';
+
+  const typeTag = document.createElement('div');
+  typeTag.className = `penalty-item-type ${type.toLowerCase()}`;
+  typeTag.textContent = type;
+  content.appendChild(typeTag);
+
+  const infraction = document.createElement('div');
+  infraction.className = 'penalty-item-infraction';
+  infraction.textContent = penalty.infraction;
+  content.appendChild(infraction);
+
+  const details = document.createElement('div');
+  details.className = 'penalty-item-details';
+
+  const offenseRow = document.createElement('div');
+  offenseRow.className = 'penalty-detail-row';
+  offenseRow.innerHTML = `<span class="penalty-detail-label">Offense:</span><span class="penalty-detail-value offense">${penalty.offense}</span>`;
+  details.appendChild(offenseRow);
+
+  const penaltyRow = document.createElement('div');
+  penaltyRow.className = 'penalty-detail-row';
+  const penaltyClass = penalty.penalty === 'DQ' ? 'dq' : '';
+  penaltyRow.innerHTML = `<span class="penalty-detail-label">Penalty:</span><span class="penalty-detail-value ${penaltyClass}">${penalty.penalty}</span>`;
+  details.appendChild(penaltyRow);
+
+  const timeRow = document.createElement('div');
+  timeRow.className = 'penalty-detail-row';
+  const timestamp = new Date(penalty.timestamp).toLocaleTimeString();
+  timeRow.innerHTML = `<span class="penalty-detail-label">Time:</span><span class="penalty-detail-value">${timestamp}</span>`;
+  details.appendChild(timeRow);
+
+  content.appendChild(details);
+  item.appendChild(content);
+
+  // Add remove button
+  const actions = document.createElement('div');
+  actions.className = 'penalty-item-actions';
+
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'penalty-remove-btn';
+  removeBtn.textContent = 'Remove';
+  removeBtn.addEventListener('click', () => {
+    penaltiesManager.removePenalty(car, type, index);
+    updatePenaltiesDisplay();
+  });
+  actions.appendChild(removeBtn);
+
+  item.appendChild(actions);
+
+  return item;
+}
+
+/**
+ * Create summary for a car with penalties
+ */
+function createCarPenaltiesSummary(car) {
+  const container = document.createElement('div');
+  container.style.borderLeft = '3px solid ' + getCarColor(car);
+  container.style.paddingLeft = 'var(--spacing-md)';
+  container.style.marginBottom = 'var(--spacing-md)';
+
+  const title = document.createElement('div');
+  title.style.fontSize = '16px';
+  title.style.fontWeight = '700';
+  title.style.marginBottom = 'var(--spacing-sm)';
+  title.innerHTML = `<span style="color: var(--accent-primary);">Car ${car}</span>`;
+
+  const carPenalties = penaltiesManager.getPenaltiesForCar(car);
+  const timePenalty = penaltiesManager.getTotalTimePenalty(car);
+
+  const summary = document.createElement('div');
+  summary.style.display = 'grid';
+  summary.style.gridTemplateColumns = 'repeat(auto-fit, minmax(120px, 1fr))';
+  summary.style.gap = 'var(--spacing-sm)';
+  summary.style.marginBottom = 'var(--spacing-md)';
+
+  if (timePenalty.hasDQ) {
+    const card = document.createElement('div');
+    card.className = 'penalty-summary-card danger';
+    card.innerHTML = '<div class="label">Status</div><div class="value">DQ</div>';
+    summary.appendChild(card);
+  } else if (timePenalty.totalMinutes > 0) {
+    const card = document.createElement('div');
+    card.className = 'penalty-summary-card warning';
+    card.innerHTML = `<div class="label">Time</div><div class="value">${timePenalty.totalMinutes}m</div>`;
+    summary.appendChild(card);
+  }
+
+  for (const [type, penalties] of Object.entries(carPenalties)) {
+    const card = document.createElement('div');
+    card.className = 'penalty-summary-card';
+    card.innerHTML = `<div class="label">${type}</div><div class="value">${penalties.length}</div>`;
+    summary.appendChild(card);
+  }
+
+  container.appendChild(title);
+  container.appendChild(summary);
+
+  return container;
+}
+
+/**
+ * Get a color for a car number
+ */
+function getCarColor(car) {
+  const colors = ['#00d4ff', '#00ff88', '#ffaa00', '#ff4444', '#ff00ff', '#00ffaa'];
+  const hash = car.split('').reduce((h, c) => h + c.charCodeAt(0), 0);
+  return colors[hash % colors.length];
+}
+
+/**
+ * Open add penalty modal
+ */
+function openAddPenaltyModal() {
+  const car = penaltiesState.selectedCar;
+  if (!car) {
+    alert('Please select a car first');
+    return;
+  }
+
+  // Create modal
+  const modal = document.createElement('div');
+  modal.className = 'penalty-add-modal';
+  modal.innerHTML = `
+    <div class="penalty-modal-content">
+      <div class="penalty-modal-header">Add Penalty - Car ${car}</div>
+      
+      <div class="penalty-modal-section">
+        <label>Penalty Type</label>
+        <select id="penaltyType" class="penalty-modal-select">
+          <option value="">Select type...</option>
+          <option value="Fuel">Fuel</option>
+          <option value="Driving">Driving</option>
+        </select>
+      </div>
+
+      <div class="penalty-modal-section">
+        <label>Infraction</label>
+        <div id="infractionList" class="penalty-infraction-list"></div>
+        <input type="hidden" id="selectedInfractionId" value="">
+      </div>
+
+      <div class="penalty-modal-section">
+        <label>Notes (Optional)</label>
+        <textarea id="penaltyNotes" class="penalty-modal-input" rows="3" placeholder="Add any additional notes..."></textarea>
+      </div>
+
+      <div class="penalty-modal-buttons">
+        <button class="btn btn-secondary" onclick="this.closest('.penalty-add-modal').remove()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitAddPenalty()">Add Penalty</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Set up type selector
+  const typeSelect = modal.querySelector('#penaltyType');
+  typeSelect.addEventListener('change', () => {
+    updateInfractionList(typeSelect.value, modal);
+  });
+
+  penaltiesState.showAddModal = true;
+}
+
+/**
+ * Update infraction list in modal based on type
+ */
+function updateInfractionList(type, modal) {
+  const list = modal.querySelector('#infractionList');
+  list.innerHTML = '';
+
+  if (!type) {
+    list.innerHTML = '<div style="padding: var(--spacing-md); text-align: center; color: var(--text-secondary);">Select a penalty type</div>';
+    return;
+  }
+
+  const penaltyDefs = penaltiesManager.penaltyDefinitions[type] || [];
+
+  penaltyDefs.forEach(penaltyDef => {
+    const item = document.createElement('div');
+    item.className = 'penalty-infraction-item';
+    item.dataset.id = penaltyDef.id;
+    item.innerHTML = `<div class="penalty-infraction-text">${penaltyDef.infraction}</div>`;
+
+    item.addEventListener('click', () => {
+      // Deselect previous
+      modal.querySelectorAll('.penalty-infraction-item').forEach(i => i.classList.remove('selected'));
+      // Select this one
+      item.classList.add('selected');
+      modal.querySelector('#selectedInfractionId').value = penaltyDef.id;
+    });
+
+    list.appendChild(item);
+  });
+}
+
+/**
+ * Submit add penalty form
+ */
+function submitAddPenalty() {
+  const modal = document.querySelector('.penalty-add-modal');
+  if (!modal) return;
+
+  const car = penaltiesState.selectedCar;
+  const infractionId = modal.querySelector('#selectedInfractionId').value;
+  const notes = modal.querySelector('#penaltyNotes').value;
+
+  if (!infractionId) {
+    alert('Please select an infraction');
+    return;
+  }
+
+  try {
+    penaltiesManager.addPenalty(car, infractionId, notes);
+    modal.remove();
+    updatePenaltiesDisplay();
+  } catch (error) {
+    alert(`Failed to add penalty: ${error.message}`);
+  }
+}
+
+/**
+ * Export penalties to JSON
+ */
+function exportPenalties() {
+  const json = penaltiesManager.exportJSON();
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `penalties-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Clear all penalties with confirmation
+ */
+function clearAllPenalties() {
+  if (!confirm('Clear all penalties? This cannot be undone.')) {
+    return;
+  }
+
+  penaltiesManager.clearAllPenalties();
+  updatePenaltiesCarsSelect();
+  updatePenaltiesDisplay();
 }
 
 // Initialize when DOM is ready

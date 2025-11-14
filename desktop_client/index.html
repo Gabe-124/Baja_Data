@@ -55,6 +55,9 @@
       </div>
     </div>
 
+    <!-- Resizable splitter -->
+    <div class="resize-handle" id="resizeHandle"></div>
+
     <!-- Right panel: Timing and data -->
     <div class="panel info-panel">
       <!-- Current lap timing -->
@@ -131,12 +134,13 @@
         <div class="tracked-car-card" id="trackedCarSummary">
           <div class="empty-state">Select a car to track</div>
         </div>
-        <div class="race-tabs" role="tablist">
-          <button class="race-tab active" data-target="endurancePanel">Endurance Grid</button>
-          <button class="race-tab" data-target="leaderboardPanel">Leaderboard</button>
-        </div>
-        <div class="race-tab-panels">
-          <div class="race-panel active" id="endurancePanel">
+        <div class="race-results-container">
+          <!-- Endurance Grid Section -->
+          <div class="race-results-panel endurance-panel-container">
+            <div class="race-results-header">
+              <h4>Endurance Grid</h4>
+              <button id="refreshEnduranceBtn" class="btn-icon" title="Refresh">🔄</button>
+            </div>
             <div class="competitor-container endurance-table-container">
               <table class="endurance-table" id="enduranceTable">
                 <thead>
@@ -154,16 +158,28 @@
               </table>
             </div>
           </div>
-          <div class="race-panel" id="leaderboardPanel">
-            <div class="competitor-container endurance-table-container">
-              <table class="endurance-table" id="leaderboardTable">
-                <thead id="leaderboardHead">
-                  <tr><th colspan="5">Leaderboard data not loaded</th></tr>
-                </thead>
-                <tbody id="leaderboardTableBody">
-                  <tr class="empty-state-row"><td colspan="5">No leaderboard data yet</td></tr>
-                </tbody>
-              </table>
+
+          <!-- Penalties Section -->
+          <div class="race-results-panel penalties-panel-container">
+            <div class="penalties-header-section">
+              <div class="penalties-title-row">
+                <h4>Penalties</h4>
+              </div>
+              <div class="penalties-header-controls">
+                <div class="penalties-car-selector">
+                  <label for="penaltiesCar">Car:</label>
+                  <select id="penaltiesCar" class="penalties-car-select">
+                    <option value="">All cars</option>
+                  </select>
+                </div>
+                <div class="penalties-actions">
+                  <button id="addPenaltyBtn" class="btn btn-primary btn-compact" title="Add penalty to selected car">+ Add</button>
+                  <button id="exportPenaltiesBtn" class="btn btn-secondary btn-compact" title="Export penalties">Export</button>
+                </div>
+              </div>
+            </div>
+            <div id="penaltiesContent" class="penalties-content">
+              <div class="empty-state">Select a car to view or add penalties</div>
             </div>
           </div>
         </div>
@@ -181,6 +197,8 @@
   <!-- Load application scripts -->
   <script src="lap_manager.js"></script>
   <script src="track_map.js"></script>
+  <script src="penalties.js"></script>
+  <script src="resize_handler.js"></script>
   <script src="renderer.js"></script>
 
   <!-- Hidden file input for track import -->

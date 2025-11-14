@@ -169,12 +169,26 @@ body {
 
 /* Main container */
 .app-container {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
+  display: flex;
   gap: var(--spacing-md);
   padding: var(--spacing-md);
   height: calc(100vh - 88px);
   overflow: hidden;
+  --map-flex: 1.5;
+  --info-flex: 1;
+}
+
+/* Resizable splitter */
+.resize-handle {
+  width: 4px;
+  background: var(--border-color);
+  cursor: col-resize;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.resize-handle:hover {
+  background: var(--accent-primary);
 }
 
 /* Panels */
@@ -213,6 +227,8 @@ body {
 /* Map panel */
 .map-panel {
   position: relative;
+  flex: var(--map-flex);
+  min-width: 250px;
 }
 
 .map-container {
@@ -242,6 +258,8 @@ body {
 /* Info panel */
 .info-panel {
   overflow-y: auto;
+  flex: var(--info-flex);
+  min-width: 250px;
 }
 
 /* Timing section */
@@ -534,46 +552,133 @@ body {
   gap: var(--spacing-xs);
 }
 
+/* Two-column layout for Endurance and Penalties */
+.race-results-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  height: 100%;
+  flex: 1;
+  overflow: hidden;
+}
+
+.race-results-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.race-results-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.race-results-header h4 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.endurance-panel-container {
+  min-height: 0;
+}
+
 .endurance-table-container {
-  padding: 0 var(--spacing-md) var(--spacing-md);
+  padding: 0;
+  height: 100%;
   overflow-y: auto;
-  max-height: 320px;
+}
+
+.penalties-panel-container {
+  min-height: 0;
+}
+
+.penalties-header-section {
+  padding: var(--spacing-md);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.penalties-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.penalties-title-row h4 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.penalties-header-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.penalties-car-selector {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  font-size: 13px;
+}
+
+.penalties-car-selector label {
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.penalties-car-select {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 13px;
+  min-width: 100px;
+}
+
+.penalties-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.penalties-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
 }
 
 .race-tabs {
-  display: flex;
-  gap: var(--spacing-xs);
-  margin: 0 var(--spacing-md);
+  display: none;
 }
 
 .race-tab {
-  flex: 1;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: var(--spacing-xs) var(--spacing-sm);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-}
-
-.race-tab.active {
-  background: var(--accent-primary);
-  color: var(--bg-primary);
-  border-color: var(--accent-primary);
+  display: none;
 }
 
 .race-tab-panels {
-  padding: 0;
+  display: none;
 }
 
 .race-panel {
   display: none;
-}
-
-.race-panel.active {
-  display: block;
 }
 
 .endurance-table {
@@ -622,7 +727,318 @@ body {
   font-style: italic;
 }
 
-/* Empty state */
+/* Penalties section */
+.penalties-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--spacing-md);
+  gap: var(--spacing-md);
+}
+
+.penalties-header-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm);
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.penalties-car-selector {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: 14px;
+}
+
+.penalties-car-selector label {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.penalties-car-select {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 14px;
+  min-width: 130px;
+}
+
+.penalties-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.penalties-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.penalties-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--spacing-sm);
+}
+
+.penalty-summary-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: var(--spacing-md);
+  text-align: center;
+}
+
+.penalty-summary-card .label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--spacing-xs);
+}
+
+.penalty-summary-card .value {
+  font-size: 28px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--accent-primary);
+}
+
+.penalty-summary-card.warning .value {
+  color: var(--accent-warning);
+}
+
+.penalty-summary-card.danger .value {
+  color: var(--accent-danger);
+}
+
+.penalties-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.penalty-item {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: var(--spacing-md);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--spacing-md);
+}
+
+.penalty-item.dq {
+  border-color: var(--accent-danger);
+  background: rgba(255, 68, 68, 0.1);
+}
+
+.penalty-item-content {
+  flex: 1;
+}
+
+.penalty-item-type {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  margin-bottom: var(--spacing-xs);
+}
+
+.penalty-item-type.fuel {
+  background: rgba(255, 170, 0, 0.2);
+  color: var(--accent-warning);
+}
+
+.penalty-item-type.driving {
+  background: rgba(255, 68, 68, 0.2);
+  color: var(--accent-danger);
+}
+
+.penalty-item-infraction {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.penalty-item-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--spacing-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.penalty-detail-row {
+  display: flex;
+  gap: var(--spacing-xs);
+}
+
+.penalty-detail-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.penalty-detail-value {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.penalty-detail-value.offense {
+  color: var(--accent-warning);
+  font-weight: 600;
+}
+
+.penalty-detail-value.dq {
+  color: var(--accent-danger);
+  font-weight: 700;
+}
+
+.penalty-item-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+}
+
+.penalty-remove-btn {
+  background: var(--accent-danger);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 4px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.penalty-remove-btn:hover {
+  background: #ff2222;
+}
+
+.penalty-add-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.penalty-add-modal.hidden {
+  display: none;
+}
+
+.penalty-modal-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: var(--spacing-lg);
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.penalty-modal-header {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: var(--spacing-md);
+}
+
+.penalty-modal-section {
+  margin-bottom: var(--spacing-md);
+}
+
+.penalty-modal-section label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: var(--spacing-sm);
+}
+
+.penalty-modal-input,
+.penalty-modal-select {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 14px;
+  margin-bottom: var(--spacing-sm);
+}
+
+.penalty-modal-input:focus,
+.penalty-modal-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
+}
+
+.penalty-modal-buttons {
+  display: flex;
+  gap: var(--spacing-sm);
+  justify-content: flex-end;
+  margin-top: var(--spacing-lg);
+}
+
+.penalty-modal-buttons .btn {
+  flex: 1;
+}
+
+.penalty-infraction-list {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.penalty-infraction-item {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.penalty-infraction-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.penalty-infraction-item.selected {
+  background: rgba(0, 212, 255, 0.2);
+  border-left: 3px solid var(--accent-primary);
+}
+
+.penalty-infraction-item:last-child {
+  border-bottom: none;
+}
+
+.penalty-infraction-text {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+
 .empty-state {
   text-align: center;
   color: var(--text-secondary);
