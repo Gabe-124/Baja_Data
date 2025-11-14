@@ -83,9 +83,11 @@ class LoRaSerial:
             if self.transparent:
                 # Transparent mode: write bytes directly to serial port
                 # The HAT transmits whatever we write
-                self.ser.write(payload)
+                bytes_written = self.ser.write(payload)
                 self.ser.flush()  # Ensure bytes are sent immediately
-                log.debug("Wrote %d bytes to LoRa serial", len(payload))
+                log.info("LoRa TX: Wrote %d bytes (of %d) to %s @ %d baud", bytes_written, len(payload), self.port, self.baud)
+                if bytes_written < len(payload):
+                    log.warning("LoRa TX: Only wrote %d of %d bytes!", bytes_written, len(payload))
                 
                 # No response expected in transparent mode - assume success
                 return True
