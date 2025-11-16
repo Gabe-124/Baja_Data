@@ -150,5 +150,44 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (event, error) => callback(error);
     ipcRenderer.on(channel, handler);
     return () => ipcRenderer.removeListener(channel, handler);
+  },
+
+  /**
+   * Penalties polling API (Black Flags)
+   */
+  startPenaltiesPolling: (options) => ipcRenderer.invoke('penalties-start', options),
+  stopPenaltiesPolling: () => ipcRenderer.invoke('penalties-stop'),
+  getPenaltiesStatus: () => ipcRenderer.invoke('penalties-status'),
+  refreshPenaltiesOnce: () => ipcRenderer.invoke('penalties-refresh'),
+  onPenaltiesData: (callback) => {
+    const channel = 'penalties-data';
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+  onPenaltiesStatus: (callback) => {
+    const channel = 'penalties-status';
+    const handler = (event, status) => callback(status);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+  onPenaltiesError: (callback) => {
+    const channel = 'penalties-error';
+    const handler = (event, error) => callback(error);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+
+  /**
+   * USB test transmit controls
+   */
+  startTestTransmit: (options) => ipcRenderer.invoke('test-transmit-start', options),
+  stopTestTransmit: () => ipcRenderer.invoke('test-transmit-stop'),
+  getTestTransmitStatus: () => ipcRenderer.invoke('test-transmit-status'),
+  onTestTransmitStatus: (callback) => {
+    const channel = 'test-transmit-status';
+    const handler = (event, status) => callback(status);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
   }
 });

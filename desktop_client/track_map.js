@@ -15,9 +15,10 @@ class TrackMap {
     });
 
     // Create tile layers: street (default) and satellite (toggleable)
-    this.streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
+    this.streetLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+      maxZoom: 20,
+      subdomains: 'abcd',
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
     });
 
     // Satellite imagery (ESRI World Imagery) - internet required
@@ -67,7 +68,7 @@ class TrackMap {
     this.drawControl = new L.Control.Draw({
       draw: {
         polyline: {
-          shapeOptions: { color: '#ffaa00', weight: 3 }
+          shapeOptions: { color: '#ffaa00', weight: 7 }
         },
         polygon: false,
         rectangle: false,
@@ -88,6 +89,9 @@ class TrackMap {
     // Handle draw created events to add the drawn polyline to drawLayer
     this.map.on(L.Draw.Event.CREATED, (e) => {
       const layer = e.layer;
+      if (e.layerType === 'polyline') {
+        this._finalizeDrawnTrackLayer(layer);
+      }
       // Remove any existing drawn track (we keep a single canonical track)
       this.drawLayer.clearLayers();
       this.drawLayer.addLayer(layer);
@@ -97,7 +101,7 @@ class TrackMap {
 
     // When edited, keep the drawLayer up-to-date
     this.map.on(L.Draw.Event.EDITED, (e) => {
-      // Nothing special required; drawLayer is already updated
+      e.layers.eachLayer((layer) => this._finalizeDrawnTrackLayer(layer));
     });
   }
 
@@ -319,6 +323,7 @@ class TrackMap {
         weight: 3,
         opacity: 0.9
       });
+      this._finalizeDrawnTrackLayer(imported);
       this.drawLayer.addLayer(imported);
       imported.addTo(this.map);
 
@@ -365,5 +370,82 @@ class TrackMap {
       return layer.toGeoJSON();
     }
     return null;
+  }
+
+  _finalizeDrawnTrackLayer(layer) {
+    if (!layer || typeof layer.getLatLngs !== 'function') return;
+    const latlngs = this._normalizeLatLngs(layer.getLatLngs());
+    if (latlngs.length < 2) return;
+
+    const closed = this._closeLoopLatLngs(latlngs);
+    const smoothed = this._smoothLatLngs(closed);
+    if (Array.isArray(smoothed) && smoothed.length) {
+      layer.setLatLngs(smoothed);
+    }
+  }
+
+  _normalizeLatLngs(latlngs) {
+    if (!Array.isArray(latlngs)) return [];
+    const list = Array.isArray(latlngs[0]) ? latlngs[0] : latlngs;
+    return list
+      .map((point) => {
+        if (!point) return null;
+        if (typeof point.lat === 'number' && typeof point.lng === 'number') {
+          return L.latLng(point.lat, point.lng);
+        }
+        if (Array.isArray(point) && point.length >= 2) {
+          return L.latLng(point[0], point[1]);
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }
+
+  _closeLoopLatLngs(latlngs, toleranceMeters = 3) {
+    if (!Array.isArray(latlngs) || latlngs.length < 2) return latlngs || [];
+    const clone = latlngs.map((pt) => (pt.clone ? pt.clone() : L.latLng(pt.lat, pt.lng)));
+    const first = clone[0];
+    const last = clone[clone.length - 1];
+    const distance = first.distanceTo && last.distanceTo ? first.distanceTo(last) : Infinity;
+    if (distance > toleranceMeters) {
+      clone.push(first.clone ? first.clone() : L.latLng(first.lat, first.lng));
+    } else {
+      clone[clone.length - 1] = first.clone ? first.clone() : L.latLng(first.lat, first.lng);
+    }
+    return clone;
+  }
+
+  _smoothLatLngs(latlngs, iterations = 2) {
+    if (!Array.isArray(latlngs) || latlngs.length < 4) {
+      return latlngs;
+    }
+
+    const uniquePoints = latlngs.slice(0, -1); // drop duplicated last point for smoothing
+    let points = uniquePoints.map((pt) => [pt.lat, pt.lng]);
+    const cappedIterations = Math.min(Math.max(iterations, 1), 3);
+
+    for (let iter = 0; iter < cappedIterations; iter++) {
+      const next = [];
+      for (let i = 0; i < points.length; i++) {
+        const current = points[i];
+        const target = points[(i + 1) % points.length];
+        const q = [0.75 * current[0] + 0.25 * target[0], 0.75 * current[1] + 0.25 * target[1]];
+        const r = [0.25 * current[0] + 0.75 * target[0], 0.25 * current[1] + 0.75 * target[1]];
+        next.push(q, r);
+      }
+      // Prevent runaway point counts for very dense shapes
+      if (next.length > 2000) {
+        points = next.slice(0, 2000);
+        break;
+      }
+      points = next;
+    }
+
+    const result = points.map(([lat, lng]) => L.latLng(lat, lng));
+    if (result.length) {
+      const first = result[0];
+      result.push(first.clone ? first.clone() : L.latLng(first.lat, first.lng));
+    }
+    return result;
   }
 }

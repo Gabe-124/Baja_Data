@@ -32,6 +32,143 @@ const penaltiesState = {
   showAddModal: false
 };
 
+const testTransmitState = {
+  running: false,
+  busy: false
+};
+
+const penaltyOutcomeRules = [
+  {
+    penaltyId: 'fuel-possession',
+    patterns: [
+      /possession of fuel/i,
+      /fuel\s+is\s+removed.*fuel (?:area|zone)/i,
+      /fuel.*removed.*endurance gridding/i,
+      /fueling procedure penalty.*possession/i,
+      /fueling procedure penalty.*removed/i
+    ]
+  },
+  {
+    penaltyId: 'fuel-unchecked',
+    patterns: [
+      /unchecked fuel/i,
+      /fuel.*unchecked/i,
+      /fueling procedure penalty.*unchecked/i
+    ]
+  },
+  {
+    penaltyId: 'fuel-track',
+    patterns: [
+      /fueling on (?:the )?track/i,
+      /fuel on the track/i
+    ]
+  },
+  {
+    penaltyId: 'fuel-tools',
+    patterns: [
+      /tools? (?:used|in use).*(?:fuel|fueling) area/i,
+      /use of tools.*fuel/i,
+      /fueling procedure penalty.*tool/i
+    ]
+  },
+  {
+    penaltyId: 'fuel-people',
+    patterns: [
+      /(more than|>\s*3|three).*people.*fuel/i,
+      /too many people.*fuel/i,
+      /fueling procedure penalty.*people/i
+    ]
+  },
+  {
+    penaltyId: 'fuel-driver-car',
+    patterns: [
+      /driver.*in (?:the )?car.*fuel/i,
+      /fueling.*driver.*car/i,
+      /fueling procedure penalty.*driver/i
+    ]
+  },
+  {
+    penaltyId: 'fuel-extinguisher',
+    patterns: [
+      /fire extinguisher.*(not ready|missing)/i,
+      /no fire extinguisher/i,
+      /fueling procedure penalty.*extinguisher/i
+    ]
+  },
+  {
+    penaltyId: 'fuel-ran-out',
+    patterns: [
+      /ran out of fuel/i,
+      /out of fuel on the track/i,
+      /fueling procedure penalty.*ran out/i
+    ]
+  },
+  {
+    penaltyId: 'fuel-container',
+    patterns: [
+      /oversized.*fuel container/i,
+      /modified fuel container/i,
+      /fueling procedure penalty.*container/i
+    ]
+  },
+  {
+    penaltyId: 'driving-rollover',
+    patterns: [
+      /roll[\s-]?over/i
+    ]
+  },
+  {
+    penaltyId: 'driving-yellow-flag',
+    patterns: [
+      /passing.*yellow flag/i,
+      /yellow flag.*pass/i,
+      /yellow.*flag.*passing/i
+    ]
+  },
+  {
+    penaltyId: 'driving-black-flag',
+    patterns: [
+      /failure to stop.*black flag/i,
+      /ignored black flag/i,
+      /black flag.*failure to stop/i
+    ]
+  },
+  {
+    penaltyId: 'driving-course',
+    patterns: [
+      /leaving the course/i,
+      /driving off course/i,
+      /off course.*advancing/i,
+      /off course.*gain/i
+    ]
+  },
+  {
+    penaltyId: 'driving-aggressive',
+    patterns: [
+      /aggressive driving/i,
+      /reckless driving/i,
+      /dangerous driving/i
+    ]
+  },
+  {
+    penaltyId: 'driving-speeding',
+    patterns: [
+      /speeding.*pit/i,
+      /speeding.*paddock/i,
+      /pit speed/i,
+      /speed.*paddock/i
+    ]
+  }
+];
+
+const UNMAPPED_PENALTY_PLACEHOLDER = 'Unlisted (Article D.8.4)';
+
+const penaltiesFeedState = {
+  running: false,
+  lastPayload: null,
+  error: null
+};
+
 /**
  * Initialize the application
  */
@@ -66,6 +203,14 @@ async function init() {
   window.electronAPI.onLeaderboardStatus(handleLeaderboardStatus);
   window.electronAPI.onLeaderboardError(handleLeaderboardError);
 
+  // Penalties polling bridges
+  window.electronAPI.onPenaltiesData(handlePenaltiesData);
+  window.electronAPI.onPenaltiesStatus(handlePenaltiesStatus);
+  window.electronAPI.onPenaltiesError(handlePenaltiesError);
+
+  // USB test transmit bridge
+  window.electronAPI.onTestTransmitStatus(handleTestTransmitStatus);
+
   // Set up lap manager callbacks
   lapManager.onLapComplete = handleLapComplete;
   lapManager.onCurrentTimeUpdate = handleCurrentTimeUpdate;
@@ -95,6 +240,29 @@ async function init() {
     console.warn('Failed to fetch leaderboard status:', error);
   }
 
+  try {
+    const status = await window.electronAPI.getPenaltiesStatus();
+    if (status) {
+      handlePenaltiesStatus(status);
+      if (status.payload) {
+        handlePenaltiesData(status.payload);
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to fetch penalties status:', error);
+  }
+
+  try {
+    const status = await window.electronAPI.getTestTransmitStatus();
+    if (status) {
+      handleTestTransmitStatus(status);
+    }
+  } catch (error) {
+    console.warn('Failed to fetch test transmit status:', error);
+  }
+
+  updatePenaltiesDisplay();
+
   console.log('Initialization complete');
 }
 
@@ -105,6 +273,12 @@ function setupEventListeners() {
   // Connection controls
   document.getElementById('connectBtn').addEventListener('click', connectToSerial);
   document.getElementById('disconnectBtn').addEventListener('click', disconnectFromSerial);
+
+  const testBtn = document.getElementById('testTxBtn');
+  if (testBtn) {
+    testBtn.addEventListener('click', toggleTestTransmitMode);
+    updateTestTransmitButton();
+  }
 
   // Map controls
   document.getElementById('centerMapBtn').addEventListener('click', () => {
@@ -219,6 +393,11 @@ function setupEventListeners() {
     updateRaceTrackingButton();
   }
 
+  const refreshEnduranceBtn = document.getElementById('refreshEnduranceBtn');
+  if (refreshEnduranceBtn) {
+    refreshEnduranceBtn.addEventListener('click', () => refreshEnduranceData(refreshEnduranceBtn));
+  }
+
   const trackedCarSelect = document.getElementById('trackedCarSelect');
   if (trackedCarSelect) {
     trackedCarSelect.addEventListener('change', (event) => {
@@ -227,6 +406,11 @@ function setupEventListeners() {
       updateEnduranceTable();
       updateLeaderboardTable();
     });
+  }
+
+  const refreshPenaltiesBtn = document.getElementById('refreshPenaltiesBtn');
+  if (refreshPenaltiesBtn) {
+    refreshPenaltiesBtn.addEventListener('click', () => refreshPenaltiesData(refreshPenaltiesBtn));
   }
 
   // Penalties controls
@@ -370,7 +554,12 @@ function handleConnectionStatus(status) {
     connectBtn.disabled = false;
     disconnectBtn.disabled = true;
     portSelect.disabled = false;
+    if (testTransmitState.running) {
+      testTransmitState.running = false;
+    }
   }
+
+  updateTestTransmitButton();
 }
 
 /**
@@ -509,13 +698,48 @@ function updateBestLapDisplay() {
   }
 }
 
+async function refreshEnduranceData(buttonEl) {
+  if (buttonEl) buttonEl.disabled = true;
+  try {
+    const status = await window.electronAPI.refreshEnduranceOnce();
+    if (status) {
+      handleEnduranceStatus(status);
+      if (status.payload) {
+        handleEnduranceData(status.payload);
+      }
+    }
+  } catch (error) {
+    handleEnduranceError(error?.message || String(error));
+  } finally {
+    if (buttonEl) buttonEl.disabled = false;
+  }
+}
+
+async function refreshPenaltiesData(buttonEl) {
+  if (buttonEl) buttonEl.disabled = true;
+  try {
+    const status = await window.electronAPI.refreshPenaltiesOnce();
+    if (status) {
+      handlePenaltiesStatus(status);
+      if (status.payload) {
+        handlePenaltiesData(status.payload);
+      }
+    }
+  } catch (error) {
+    handlePenaltiesError(error?.message || String(error));
+  } finally {
+    if (buttonEl) buttonEl.disabled = false;
+  }
+}
+
 async function toggleRaceTracking() {
   const toggleBtn = document.getElementById('toggleRaceTrackingBtn');
   if (toggleBtn) toggleBtn.disabled = true;
 
   const wasEnduranceRunning = enduranceState.running;
   const wasLeaderboardRunning = leaderboardState.running;
-  const anyRunning = enduranceState.running || leaderboardState.running;
+  const wasPenaltiesRunning = penaltiesFeedState.running;
+  const anyRunning = enduranceState.running || leaderboardState.running || penaltiesFeedState.running;
   let failureScope = null;
 
   try {
@@ -536,6 +760,13 @@ async function toggleRaceTracking() {
         });
       }
 
+      if (penaltiesFeedState.running) {
+        ops.push({
+          type: 'penalties',
+          promise: window.electronAPI.stopPenaltiesPolling()
+        });
+      }
+
       const settled = await Promise.allSettled(ops.map((op) => op.promise));
       settled.forEach((result, index) => {
         const op = ops[index];
@@ -543,11 +774,13 @@ async function toggleRaceTracking() {
         const type = op.type;
         if (result.status === 'fulfilled' && result.value) {
           if (type === 'endurance') handleEnduranceStatus(result.value);
-          else handleLeaderboardStatus(result.value);
+          else if (type === 'leaderboard') handleLeaderboardStatus(result.value);
+          else handlePenaltiesStatus(result.value);
         } else if (result.status === 'rejected') {
           const error = result.reason;
           if (type === 'endurance') handleEnduranceError(error?.message || String(error));
-          else handleLeaderboardError(error?.message || String(error));
+          else if (type === 'leaderboard') handleLeaderboardError(error?.message || String(error));
+          else handlePenaltiesError(error?.message || String(error));
         }
       });
     } else {
@@ -567,6 +800,15 @@ async function toggleRaceTracking() {
           if (leaderboardResult) {
             handleLeaderboardStatus(leaderboardResult);
             if (leaderboardResult.payload) handleLeaderboardData(leaderboardResult.payload);
+          }
+        }
+
+        if (!penaltiesFeedState.running) {
+          failureScope = 'penalties';
+          const penaltiesResult = await window.electronAPI.startPenaltiesPolling();
+          if (penaltiesResult) {
+            handlePenaltiesStatus(penaltiesResult);
+            if (penaltiesResult.payload) handlePenaltiesData(penaltiesResult.payload);
           }
         }
 
@@ -592,6 +834,15 @@ async function toggleRaceTracking() {
           }
         }
 
+        if (!wasPenaltiesRunning && penaltiesFeedState.running) {
+          try {
+            const rollback = await window.electronAPI.stopPenaltiesPolling();
+            if (rollback) handlePenaltiesStatus(rollback);
+          } catch (stopError) {
+            console.error('Failed to roll back penalties polling:', stopError);
+          }
+        }
+
         throw error;
       }
     }
@@ -603,6 +854,9 @@ async function toggleRaceTracking() {
     }
     if (!failureScope || failureScope === 'leaderboard') {
       handleLeaderboardError(message);
+    }
+    if (!failureScope || failureScope === 'penalties') {
+      handlePenaltiesError(message);
     }
   } finally {
     if (toggleBtn) toggleBtn.disabled = false;
@@ -620,6 +874,12 @@ function handleLeaderboardStatus(status) {
   if (!status) return;
   leaderboardState.running = !!status.running;
   updateLeaderboardStatusUI();
+}
+
+function handlePenaltiesStatus(status) {
+  if (!status) return;
+  penaltiesFeedState.running = !!status.running;
+  updatePenaltiesStatusUI();
 }
 
 function handleEnduranceData(payload) {
@@ -642,6 +902,15 @@ function handleLeaderboardData(payload) {
   updatePenaltiesCarsSelect();
 }
 
+function handlePenaltiesData(payload) {
+  if (!payload) return;
+  penaltiesFeedState.lastPayload = payload;
+  penaltiesFeedState.error = null;
+  updatePenaltiesMeta();
+  updatePenaltiesCarsSelect();
+  updatePenaltiesDisplay();
+}
+
 function handleEnduranceError(message) {
   console.error('Endurance polling error:', message);
   const statusEl = document.getElementById('enduranceStatusText');
@@ -658,6 +927,18 @@ function handleLeaderboardError(message) {
   const statusEl = document.getElementById('leaderboardStatusText');
   if (statusEl) {
     statusEl.textContent = `Leaderboard error: ${message}`;
+    statusEl.classList.remove('active');
+    statusEl.classList.add('error');
+  }
+  updateRaceTrackingButton();
+}
+
+function handlePenaltiesError(message) {
+  console.error('Penalties polling error:', message);
+  penaltiesFeedState.error = message;
+  const statusEl = document.getElementById('penaltiesStatusText');
+  if (statusEl) {
+    statusEl.textContent = `Penalties error: ${message}`;
     statusEl.classList.remove('active');
     statusEl.classList.add('error');
   }
@@ -684,17 +965,75 @@ function updateLeaderboardStatusUI() {
   updateRaceTrackingButton();
 }
 
+function updatePenaltiesStatusUI() {
+  const statusEl = document.getElementById('penaltiesStatusText');
+  if (statusEl) {
+    statusEl.classList.remove('error');
+    statusEl.textContent = penaltiesFeedState.running ? 'Penalties active' : 'Penalties stopped';
+    statusEl.classList.toggle('active', penaltiesFeedState.running);
+  }
+  updateRaceTrackingButton();
+}
+
 function updateRaceTrackingButton() {
   const toggleBtn = document.getElementById('toggleRaceTrackingBtn');
   if (!toggleBtn) return;
 
-  const anyRunning = enduranceState.running || leaderboardState.running;
+  const anyRunning = enduranceState.running || leaderboardState.running || penaltiesFeedState.running;
   toggleBtn.textContent = anyRunning ? 'Stop Tracking' : 'Start Tracking';
   toggleBtn.title = anyRunning
-    ? 'Stop endurance and leaderboard polling'
-    : 'Start endurance and leaderboard polling';
+    ? 'Stop endurance, leaderboard, and penalties polling'
+    : 'Start endurance, leaderboard, and penalties polling';
   toggleBtn.classList.toggle('btn-primary', !anyRunning);
   toggleBtn.classList.toggle('btn-secondary', anyRunning);
+}
+
+function handleTestTransmitStatus(status) {
+  if (!status) return;
+  testTransmitState.running = !!status.running;
+  testTransmitState.busy = false;
+  updateTestTransmitButton();
+}
+
+function updateTestTransmitButton() {
+  const testBtn = document.getElementById('testTxBtn');
+  if (!testBtn) return;
+
+  const label = testTransmitState.running ? 'Stop Test TX' : 'Start Test TX';
+  testBtn.textContent = label;
+  testBtn.classList.toggle('active', testTransmitState.running);
+  testBtn.disabled = !isConnected || testTransmitState.busy;
+  testBtn.title = testTransmitState.running
+    ? 'Transmitting continuous test packets at 915 MHz. Click to stop.'
+    : 'Send repeating 915 MHz test packets once connected.';
+}
+
+async function toggleTestTransmitMode() {
+  if (!isConnected) {
+    alert('Connect to a LoRa port before sending test packets.');
+    return;
+  }
+
+  if (testTransmitState.busy) {
+    return;
+  }
+
+  testTransmitState.busy = true;
+  updateTestTransmitButton();
+
+  try {
+    if (testTransmitState.running) {
+      await window.electronAPI.stopTestTransmit();
+    } else {
+      await window.electronAPI.startTestTransmit({ frequencyMHz: 915, intervalMs: 1000 });
+    }
+  } catch (error) {
+    console.error('Failed to toggle test transmit:', error);
+    alert(`Failed to toggle test transmit: ${error?.message || error}`);
+  } finally {
+    testTransmitState.busy = false;
+    updateTestTransmitButton();
+  }
 }
 
 function updateEnduranceMeta() {
@@ -724,6 +1063,25 @@ function updateLeaderboardMeta() {
   } else {
     asOfEl.textContent = `${label} • --`;
   }
+}
+
+function updatePenaltiesMeta() {
+  const asOfEl = document.getElementById('penaltiesAsOf');
+  if (!asOfEl) return;
+
+  const meta = penaltiesFeedState.lastPayload?.meta || {};
+  let label = null;
+  if (meta.lastUpdatedText) {
+    label = `Site update ${meta.lastUpdatedText}`;
+  } else if (meta.latestEntryText) {
+    label = `Latest entry ${meta.latestEntryText}`;
+  } else if (meta.latestEntryISO) {
+    label = `Latest entry ${formatLocalTimestamp(meta.latestEntryISO)}`;
+  } else if (meta.scrapedAt) {
+    label = `Updated ${formatLocalTimestamp(meta.scrapedAt)}`;
+  }
+
+  asOfEl.textContent = label ? `Black Flags • ${label}` : 'Black Flags • --';
 }
 
 function updateTrackedCarOptions() {
@@ -978,6 +1336,87 @@ function sanitizeCarNumber(value) {
   return String(value).trim();
 }
 
+function getPenaltiesColumnMap() {
+  const headers = penaltiesFeedState.lastPayload?.meta?.headers || [];
+  const normalized = headers.map((header) => ({
+    header,
+    normalized: header.toLowerCase()
+  }));
+
+  const buildList = (keywords, defaults) => {
+    const matches = normalized
+      .filter(({ normalized: label }) => keywords.some((keyword) => label.includes(keyword)))
+      .map(({ header }) => header);
+    const combined = [...matches, ...defaults];
+    return combined.filter((value, index) => value && combined.indexOf(value) === index);
+  };
+
+  return {
+    timestamp: buildList(['time', 'date'], ['Time', 'Timestamp', 'Date/Time']),
+    car: buildList(['car'], ['Car #', 'Car']),
+    team: buildList(['team', 'school'], ['Team', 'School', 'School / Team']),
+    infraction: buildList(['infraction', 'activity', 'description'], ['Infraction', 'Activity']),
+    penalty: buildList(['penalty', 'minute'], ['Penalty', 'Minutes']),
+    notes: buildList(['note', 'comment'], ['Notes', 'Comments'])
+  };
+}
+
+function extractOrdinalFromText(text) {
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  if (lower.includes('third')) return 3;
+  if (lower.includes('second')) return 2;
+  if (lower.includes('first')) return 1;
+  const digit = lower.match(/\b(\d+)(st|nd|rd|th)?\b/);
+  if (digit) return parseInt(digit[1], 10);
+  return null;
+}
+
+function derivePenaltyOutcome(row) {
+  const activity = (getPenaltyRowValue(row, 'infraction') || '').trim();
+  if (!activity) return '';
+
+  for (const rule of penaltyOutcomeRules) {
+    if (!rule.patterns || !rule.patterns.length) continue;
+    const matched = rule.patterns.some((pattern) => pattern.test(activity));
+    if (!matched) continue;
+
+    const penaltyId = rule.penaltyId;
+    if (!penaltyId) {
+      continue;
+    }
+
+    const offense = rule.offense || extractOrdinalFromText(activity) || 1;
+    const penaltyLabel = penaltiesManager.getPenaltyForOffense(penaltyId, offense);
+    if (penaltyLabel) {
+      return penaltyLabel;
+    }
+  }
+
+  return '';
+}
+
+function getPenaltyRowValue(row, columnKey) {
+  const columnMap = getPenaltiesColumnMap();
+  const candidates = columnMap[columnKey] || [];
+  for (const key of candidates) {
+    if (key && Object.prototype.hasOwnProperty.call(row, key) && row[key]) {
+      return row[key];
+    }
+  }
+  if (columnKey === 'car') {
+    return row.__car || '';
+  }
+  if (columnKey === 'penalty') {
+    return derivePenaltyOutcome(row);
+  }
+  return '';
+}
+
+function getPenaltyRowCar(row) {
+  return sanitizeCarNumber(getPenaltyRowValue(row, 'car'));
+}
+
 function formatLocalTimestamp(value) {
   if (!value) return '--';
   const date = new Date(value);
@@ -1076,6 +1515,13 @@ function updatePenaltiesCarsSelect() {
     });
   }
 
+  if (penaltiesFeedState.lastPayload?.data) {
+    penaltiesFeedState.lastPayload.data.forEach((row) => {
+      const car = getPenaltyRowCar(row);
+      if (car) cars.add(car);
+    });
+  }
+
   // Add cars that already have penalties
   penaltiesManager.getAllCarsWithPenalties().forEach(car => cars.add(car));
 
@@ -1107,72 +1553,202 @@ function updatePenaltiesDisplay() {
   if (!content) return;
 
   const car = penaltiesState.selectedCar;
+  const remoteRows = penaltiesFeedState.lastPayload?.data || [];
+  content.innerHTML = '';
 
-  if (!car) {
-    // Show all cars with penalties
-    const allCars = penaltiesManager.getAllCarsWithPenalties();
-    if (allCars.length === 0) {
-      content.innerHTML = '<div class="empty-state">No penalties recorded yet</div>';
-      return;
+  if (car) {
+    const remoteSection = createRemotePenaltiesSection(
+      remoteRows.filter((row) => getPenaltyRowCar(row) === car),
+      { car }
+    );
+    if (remoteSection) {
+      content.appendChild(remoteSection);
     }
 
-    content.innerHTML = '';
-    allCars.forEach(carNum => {
-      const summary = createCarPenaltiesSummary(carNum);
-      content.appendChild(summary);
-    });
-  } else {
-    // Show specific car
-    const carPenalties = penaltiesManager.getPenaltiesForCar(car);
-    const timePenalty = penaltiesManager.getTotalTimePenalty(car);
+    const manualSection = createManualPenaltiesSection(car);
+    if (manualSection) {
+      content.appendChild(manualSection);
+    }
 
-    if (Object.keys(carPenalties).length === 0 && timePenalty.totalMinutes === 0 && !timePenalty.hasDQ) {
+    if (!remoteSection && !manualSection) {
       content.innerHTML = `<div class="empty-state">No penalties for car ${car}</div>`;
-      return;
+    }
+  } else {
+    const remoteSection = createRemotePenaltiesSection(remoteRows.slice(0, 40), { showOverview: true });
+    if (remoteSection) {
+      content.appendChild(remoteSection);
     }
 
-    content.innerHTML = '';
-
-    // Show summary cards
-    const summaryDiv = document.createElement('div');
-    summaryDiv.className = 'penalties-summary';
-
-    if (timePenalty.hasDQ) {
-      const card = document.createElement('div');
-      card.className = 'penalty-summary-card danger';
-      card.innerHTML = '<div class="label">Status</div><div class="value">DQ</div>';
-      summaryDiv.appendChild(card);
-    } else if (timePenalty.totalMinutes > 0) {
-      const card = document.createElement('div');
-      card.className = 'penalty-summary-card warning';
-      card.innerHTML = `<div class="label">Total Time</div><div class="value">${timePenalty.totalMinutes}m</div>`;
-      summaryDiv.appendChild(card);
+    const manualOverview = createManualPenaltiesOverview();
+    if (manualOverview) {
+      content.appendChild(manualOverview);
     }
 
-    // Count by type
-    for (const [type, penalties] of Object.entries(carPenalties)) {
-      const card = document.createElement('div');
-      card.className = 'penalty-summary-card';
-      const count = penalties.length;
-      card.innerHTML = `<div class="label">${type}</div><div class="value">${count}</div>`;
-      summaryDiv.appendChild(card);
+    if (!remoteSection && !manualOverview) {
+      content.innerHTML = '<div class="empty-state">No penalties recorded yet</div>';
     }
-
-    content.appendChild(summaryDiv);
-
-    // Show penalties list
-    const list = document.createElement('div');
-    list.className = 'penalties-list';
-
-    for (const [type, penalties] of Object.entries(carPenalties)) {
-      penalties.forEach((penalty, index) => {
-        const item = createPenaltyItem(penalty, type, car, index);
-        list.appendChild(item);
-      });
-    }
-
-    content.appendChild(list);
   }
+}
+
+function createRemotePenaltiesSection(rows, { car = null, showOverview = false } = {}) {
+  const section = document.createElement('div');
+  section.className = 'remote-penalties-section';
+
+  const header = document.createElement('div');
+  header.className = 'penalties-subheader';
+  if (car) {
+    header.textContent = `Live Black Flags for Car ${car}`;
+  } else {
+    header.textContent = 'Latest Live Black Flags';
+  }
+  section.appendChild(header);
+
+  if (!rows.length) {
+    const message = document.createElement('div');
+    message.className = 'empty-state';
+    if (car) {
+      message.textContent = penaltiesFeedState.running
+        ? `No live penalties have been posted for car ${car} yet.`
+        : 'Start tracking to pull penalties from the official site.';
+    } else if (penaltiesFeedState.running) {
+      message.textContent = 'Waiting for the next update from the Black Flags page.';
+    } else {
+      message.textContent = 'Start tracking to pull penalties from the official site.';
+    }
+    section.appendChild(message);
+    return section;
+  }
+
+  const table = buildRemotePenaltiesTable(rows, {
+    includeCarColumn: !car,
+    limit: car ? 20 : 40
+  });
+  section.appendChild(table);
+
+  if (!car && showOverview) {
+    const helper = document.createElement('div');
+    helper.className = 'penalties-helper-text';
+    helper.textContent = 'Select a car to focus this view and add manual notes.';
+    section.appendChild(helper);
+  }
+
+  return section;
+}
+
+function buildRemotePenaltiesTable(rows, { includeCarColumn = true, limit = 40 } = {}) {
+  const columns = [
+    { key: 'timestamp', label: 'Time' }
+  ];
+  if (includeCarColumn) {
+    columns.push({ key: 'car', label: 'Car #' });
+  }
+  columns.push(
+    { key: 'team', label: 'Team / School' },
+    { key: 'infraction', label: 'Infraction' },
+    { key: 'penalty', label: 'Penalty' },
+    { key: 'notes', label: 'Notes' }
+  );
+
+  const table = document.createElement('table');
+  table.className = 'remote-penalties-table';
+
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  columns.forEach((column) => {
+    const th = document.createElement('th');
+    th.textContent = column.label;
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  rows.slice(0, limit).forEach((row) => {
+    const tr = document.createElement('tr');
+    columns.forEach((column) => {
+      const td = document.createElement('td');
+      const value = getPenaltyRowValue(row, column.key);
+      td.textContent = value || (column.key === 'penalty' ? UNMAPPED_PENALTY_PLACEHOLDER : '');
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  return table;
+}
+
+function createManualPenaltiesSection(car) {
+  const carPenalties = penaltiesManager.getPenaltiesForCar(car);
+  const timePenalty = penaltiesManager.getTotalTimePenalty(car);
+  if (Object.keys(carPenalties).length === 0 && timePenalty.totalMinutes === 0 && !timePenalty.hasDQ) {
+    return null;
+  }
+
+  const container = document.createElement('div');
+  container.className = 'manual-penalties-section';
+
+  const header = document.createElement('div');
+  header.className = 'penalties-subheader';
+  header.textContent = 'Manual notes & tracking';
+  container.appendChild(header);
+
+  const summaryDiv = document.createElement('div');
+  summaryDiv.className = 'penalties-summary';
+
+  if (timePenalty.hasDQ) {
+    const card = document.createElement('div');
+    card.className = 'penalty-summary-card danger';
+    card.innerHTML = '<div class="label">Status</div><div class="value">DQ</div>';
+    summaryDiv.appendChild(card);
+  } else if (timePenalty.totalMinutes > 0) {
+    const card = document.createElement('div');
+    card.className = 'penalty-summary-card warning';
+    card.innerHTML = `<div class="label">Total Time</div><div class="value">${timePenalty.totalMinutes}m</div>`;
+    summaryDiv.appendChild(card);
+  }
+
+  for (const [type, penalties] of Object.entries(carPenalties)) {
+    const card = document.createElement('div');
+    card.className = 'penalty-summary-card';
+    const count = penalties.length;
+    card.innerHTML = `<div class="label">${type}</div><div class="value">${count}</div>`;
+    summaryDiv.appendChild(card);
+  }
+
+  container.appendChild(summaryDiv);
+
+  const list = document.createElement('div');
+  list.className = 'penalties-list';
+  for (const [type, penalties] of Object.entries(carPenalties)) {
+    penalties.forEach((penalty, index) => {
+      const item = createPenaltyItem(penalty, type, car, index);
+      list.appendChild(item);
+    });
+  }
+  container.appendChild(list);
+
+  return container;
+}
+
+function createManualPenaltiesOverview() {
+  const allCars = penaltiesManager.getAllCarsWithPenalties();
+  if (!allCars.length) {
+    return null;
+  }
+
+  const container = document.createElement('div');
+  container.className = 'manual-penalties-overview';
+
+  const header = document.createElement('div');
+  header.className = 'penalties-subheader';
+  header.textContent = 'Manual notes by car';
+  container.appendChild(header);
+
+  allCars.forEach((carNum) => {
+    const summary = createCarPenaltiesSummary(carNum);
+    container.appendChild(summary);
+  });
+  return container;
 }
 
 /**

@@ -56,6 +56,7 @@ npm start
 4. **Set Start/Finish Line** - Double-click on the map where you want the start/finish line
    - This creates a 10-meter detection radius
    - The app will auto-detect lap completion when crossing this zone
+5. **Test the USB Link (optional)** - After connecting, click **Start Test TX** to stream synthetic telemetry packets at 915 MHz. Click the button again (or disconnect/close the app) to stop the transmission.
 
 ### During a Session
 

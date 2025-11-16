@@ -11,11 +11,13 @@ const LoRaReceiver = require('./lora_receiver');
 const fs = require('fs');
 const { EndurancePoller } = require('./poll_endurance');
 const { LeaderboardPoller } = require('./poll_leaderboard');
+const { PenaltiesPoller } = require('./poll_penalties');
 
 let mainWindow;
 let loraReceiver;
 let endurancePoller;
 let leaderboardPoller;
+let penaltiesPoller;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -54,6 +56,16 @@ function createWindow() {
         mainWindow.webContents.send('leaderboard-data', boardPayload);
       }
     }
+    if (penaltiesPoller) {
+      mainWindow.webContents.send('penalties-status', { running: penaltiesPoller.isRunning() });
+      const penaltiesPayload = penaltiesPoller.getLastPayload();
+      if (penaltiesPayload) {
+        mainWindow.webContents.send('penalties-data', penaltiesPayload);
+      }
+    }
+    if (loraReceiver) {
+      mainWindow.webContents.send('test-transmit-status', loraReceiver.getTestTransmitStatus());
+    }
   });
 }
 
@@ -80,6 +92,12 @@ function initLoRaReceiver() {
     console.error('LoRa receiver error:', error);
     if (mainWindow) {
       mainWindow.webContents.send('connection-error', error.message);
+    }
+  });
+
+  loraReceiver.on('test-status', (status) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('test-transmit-status', status);
     }
   });
 }
@@ -144,12 +162,43 @@ function initLeaderboardPoller() {
   return leaderboardPoller;
 }
 
+function initPenaltiesPoller() {
+  if (penaltiesPoller) {
+    return penaltiesPoller;
+  }
+
+  penaltiesPoller = new PenaltiesPoller();
+
+  penaltiesPoller.on('data', (payload) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('penalties-data', payload);
+    }
+  });
+
+  penaltiesPoller.on('error', (error) => {
+    console.error('Penalties poller error:', error);
+    if (mainWindow) {
+      const message = error && error.message ? error.message : String(error);
+      mainWindow.webContents.send('penalties-error', message);
+    }
+  });
+
+  penaltiesPoller.on('status', (status) => {
+    if (mainWindow) {
+      mainWindow.webContents.send('penalties-status', { running: !!status.running });
+    }
+  });
+
+  return penaltiesPoller;
+}
+
 // App lifecycle events
 app.whenReady().then(() => {
   createWindow();
   initLoRaReceiver();
   initEndurancePoller();
   initLeaderboardPoller();
+  initPenaltiesPoller();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -169,6 +218,10 @@ app.on('window-all-closed', () => {
   if (leaderboardPoller) {
     leaderboardPoller.destroy();
     leaderboardPoller = null;
+  }
+  if (penaltiesPoller) {
+    penaltiesPoller.destroy();
+    penaltiesPoller = null;
   }
   if (process.platform !== 'darwin') {
     app.quit();
@@ -317,4 +370,80 @@ ipcMain.handle('leaderboard-refresh', async () => {
     running: poller.isRunning(),
     payload: payload || poller.getLastPayload()
   };
+});
+
+// Penalties polling controls
+ipcMain.handle('penalties-start', async (event, options = {}) => {
+  const poller = initPenaltiesPoller();
+
+  if (options.intervalMs) {
+    try {
+      poller.updateInterval(options.intervalMs);
+    } catch (error) {
+      console.warn('Invalid penalties interval requested:', error.message);
+    }
+  }
+
+  const payload = await poller.startWithImmediate();
+  return {
+    running: poller.isRunning(),
+    payload: payload || poller.getLastPayload()
+  };
+});
+
+ipcMain.handle('penalties-stop', async () => {
+  if (penaltiesPoller) {
+    penaltiesPoller.stop();
+  }
+  return { running: penaltiesPoller ? penaltiesPoller.isRunning() : false };
+});
+
+ipcMain.handle('penalties-status', async () => {
+  if (!penaltiesPoller) {
+    return { running: false, payload: null };
+  }
+  return {
+    running: penaltiesPoller.isRunning(),
+    payload: penaltiesPoller.getLastPayload()
+  };
+});
+
+ipcMain.handle('penalties-refresh', async () => {
+  const poller = initPenaltiesPoller();
+  const payload = await poller.pollOnce();
+  return {
+    running: poller.isRunning(),
+    payload: payload || poller.getLastPayload()
+  };
+});
+
+// Test transmit controls
+ipcMain.handle('test-transmit-start', async (event, options = {}) => {
+  if (!loraReceiver) {
+    initLoRaReceiver();
+  }
+  if (!loraReceiver) {
+    throw new Error('LoRa receiver unavailable');
+  }
+  return loraReceiver.startTestTransmit(options);
+});
+
+ipcMain.handle('test-transmit-stop', async () => {
+  if (!loraReceiver) {
+    initLoRaReceiver();
+  }
+  if (!loraReceiver) {
+    return { running: false };
+  }
+  return loraReceiver.stopTestTransmit();
+});
+
+ipcMain.handle('test-transmit-status', async () => {
+  if (!loraReceiver) {
+    initLoRaReceiver();
+  }
+  if (!loraReceiver) {
+    return { running: false };
+  }
+  return loraReceiver.getTestTransmitStatus();
 });

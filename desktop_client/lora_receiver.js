@@ -15,6 +15,15 @@ class LoRaReceiver extends EventEmitter {
     this.port = null;
     this.parser = null;
     this.connected = false;
+    this.testTransmit = {
+      running: false,
+      intervalId: null,
+      sequence: 0,
+      options: {
+        frequencyMHz: 915,
+        intervalMs: 1000
+      }
+    };
   }
 
   /**
@@ -103,6 +112,7 @@ class LoRaReceiver extends EventEmitter {
    * @returns {Promise<boolean>} Success status
    */
   async disconnect() {
+    this.stopTestTransmit();
     return new Promise((resolve) => {
       if (this.port && this.port.isOpen) {
         this.port.close((err) => {
@@ -158,6 +168,99 @@ class LoRaReceiver extends EventEmitter {
       // Not valid JSON or parsing error - log but don't crash
       console.warn('Failed to parse incoming data:', line, error.message);
     }
+  }
+
+  getTestTransmitStatus() {
+    return {
+      running: this.testTransmit.running,
+      frequencyMHz: this.testTransmit.options.frequencyMHz,
+      intervalMs: this.testTransmit.options.intervalMs
+    };
+  }
+
+  startTestTransmit(options = {}) {
+    if (!this.port || !this.connected || !this.port.isOpen) {
+      throw new Error('Connect to a LoRa receiver before sending test packets.');
+    }
+
+    if (this.testTransmit.running) {
+      return this.getTestTransmitStatus();
+    }
+
+    const frequencyMHz = Number(options.frequencyMHz) || this.testTransmit.options.frequencyMHz || 915;
+    const requestedInterval = Number(options.intervalMs) || this.testTransmit.options.intervalMs || 1000;
+    const intervalMs = Math.max(200, requestedInterval);
+
+    this.testTransmit.options = { frequencyMHz, intervalMs };
+    this.testTransmit.sequence = 0;
+
+    const sendPacket = () => {
+      try {
+        const payload = this.buildTestTelemetryPacket(frequencyMHz);
+        this.writeTestPayload(payload);
+      } catch (error) {
+        console.error('Failed to send test telemetry:', error);
+      }
+    };
+
+    sendPacket();
+    this.testTransmit.intervalId = setInterval(sendPacket, intervalMs);
+    this.testTransmit.running = true;
+
+    const status = this.getTestTransmitStatus();
+    this.emit('test-status', status);
+    return status;
+  }
+
+  stopTestTransmit() {
+    if (this.testTransmit.intervalId) {
+      clearInterval(this.testTransmit.intervalId);
+      this.testTransmit.intervalId = null;
+    }
+
+    if (this.testTransmit.running) {
+      this.testTransmit.running = false;
+      const status = this.getTestTransmitStatus();
+      this.emit('test-status', status);
+      return status;
+    }
+
+    return this.getTestTransmitStatus();
+  }
+
+  buildTestTelemetryPacket(frequencyMHz) {
+    const seq = this.testTransmit.sequence++;
+    const baseLat = 40.391234;
+    const baseLon = -88.221234;
+    const radius = 0.0008;
+    const angle = (seq % 360) * (Math.PI / 180);
+
+    return {
+      ts: new Date().toISOString(),
+      lat: baseLat + Math.sin(angle) * radius,
+      lon: baseLon + Math.cos(angle) * radius,
+      alt: 12 + (seq % 8),
+      fix: 3,
+      sats: 10 + (seq % 4),
+      hdop: 0.8,
+      test: true,
+      source: 'desktop-test',
+      freq_mhz: frequencyMHz,
+      sequence: seq
+    };
+  }
+
+  writeTestPayload(payload) {
+    if (!this.port || !this.port.isOpen) {
+      throw new Error('Serial port is not open for test transmit.');
+    }
+
+    const serialized = JSON.stringify(payload);
+    this.port.write(serialized + '\n', (err) => {
+      if (err) {
+        console.error('Failed to write test payload:', err);
+      }
+    });
   }
 
   /**
