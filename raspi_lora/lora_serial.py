@@ -18,7 +18,7 @@ The receiver (USB LoRa) must be configured with matching parameters.
 import logging
 import serial  # PySerial for UART communication
 import time
-from typing import Optional
+from typing import List, Optional
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +45,8 @@ class LoRaSerial:
         self.timeout = timeout
         self.transparent = transparent
         self.ser: Optional[serial.Serial] = None
+        # Re-use the serial timeout but never wait less than 1 second for AT responses
+        self._at_response_timeout = max(timeout, 1.0)
 
     def open(self):
         """Open the serial connection to the LoRa HAT."""
@@ -92,19 +94,68 @@ class LoRaSerial:
                 # No response expected in transparent mode - assume success
                 return True
             else:
-                # AT command mode (example implementation - not used by default)
-                # Some HATs require wrapping payload in an AT command like:
-                #   AT+SEND=<length>,<payload>\r\n
-                cmd = b"AT+SEND=" + str(len(payload)).encode() + b"," + payload + b"\r\n"
-                self.ser.write(cmd)
-                self.ser.flush()
-                
-                # Wait for acknowledgment from the HAT
-                resp = self.ser.readline().decode("ascii", errors="ignore").strip()
-                log.debug("AT resp: %s", resp)
-                
-                # Check if response indicates success
-                return "OK" in resp or "SEND" in resp
+                # AT command mode: wrap payload in AT+SEND=<len>,<payload>\r\n and wait for an OK
+                at_cmd = self._build_at_send_command(payload)
+                responses = self._send_at_command(at_cmd)
+                if not responses:
+                    log.warning("LoRa AT: no response after send")
+                    return False
+
+                success = any("OK" in line.upper() or "SEND" in line.upper() for line in responses)
+                if not success:
+                    log.warning("LoRa AT: unexpected response %s", responses)
+                return success
         except Exception as e:
             log.exception("Failed to send packet: %s", e)
             return False
+
+    def _build_at_send_command(self, payload: bytes) -> bytes:
+        """Construct an AT+SEND command for the given payload.
+
+        Many LoRa HATs expect ASCII-safe data inside the AT command. Our telemetry
+        is UTF-8 JSON, so strip CR/LF just in case before embedding the payload.
+        """
+        try:
+            payload_str = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            # Fallback to latin-1 so every byte is represented, even though
+            # payloads are expected to be UTF-8 JSON.
+            payload_str = payload.decode("latin-1")
+
+        sanitized = payload_str.replace("\r", "").replace("\n", "")
+        cmd = f"AT+SEND={len(payload)},{sanitized}"
+        return cmd.encode("ascii", errors="ignore")
+
+    def _send_at_command(self, command: bytes) -> List[str]:
+        """Send an AT command and collect response lines until completion."""
+        if self.ser is None:
+            self.open()
+
+        if not command.endswith(b"\r\n"):
+            command += b"\r\n"
+
+        log.debug("LoRa AT >> %s", command.decode("ascii", errors="ignore").strip())
+        # Clear any stale bytes before issuing the next command
+        if self.ser.in_waiting:
+            self.ser.reset_input_buffer()
+
+        self.ser.write(command)
+        self.ser.flush()
+
+        responses: List[str] = []
+        deadline = time.time() + self._at_response_timeout
+        while time.time() < deadline:
+            line = self.ser.readline()
+            if not line:
+                continue
+            text = line.decode("ascii", errors="ignore").strip()
+            if not text:
+                continue
+
+            responses.append(text)
+            log.debug("LoRa AT << %s", text)
+            upper = text.upper()
+            if any(token in upper for token in ("OK", "SEND", "ERROR", "FAIL")):
+                break
+
+        return responses

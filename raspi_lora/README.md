@@ -9,7 +9,7 @@ This Python project reads GPS/IMU data and sends compact JSON telemetry packets 
   - `SerialGPS` — Read NMEA sentences over UART (simple, widely compatible)
   - `I2CGPS` — Read UBX binary messages over I2C/Qwiic (more accurate)
   - `SimulatedGPS` — Generate fake GPS data for testing (default: Hoboken, NJ)
-- **`lora_serial.py`** — LoRa transmitter interface via transparent UART serial.
+- **`lora_serial.py`** — LoRa transmitter interface via UART (transparent or AT command modes).
 - **`fake_gps_sender.py`** — Standalone CLI that replays a fake lap around Stevens via LoRa or stdout for front-end tests.
 - **`config.py`** — Configuration (ports, baud rates, timing).
 - **`requirements.txt`** — Minimal Python dependencies for Pi3A+.
@@ -18,7 +18,7 @@ This Python project reads GPS/IMU data and sends compact JSON telemetry packets 
 
 - **GPS Module:** SparkFun NEO-M8U connected via Qwiic/I2C (default) or UART serial
 - **LoRa HAT:** Waveshare SX1262 connected to Pi's UART (/dev/ttyAMA0)
-- **LoRa Mode:** Transparent UART mode (raw bytes transmitted as-is)
+- **LoRa Mode:** Transparent UART (raw bytes) or AT command mode (configurable)
 - **Frequency:** 915 MHz (US/Americas)
 
 ### Waveshare SX1262 915 MHz LoRa HAT (GPIO stack)

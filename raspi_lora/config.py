@@ -25,7 +25,7 @@ class Config:
     # Prefer the /dev/serial0 alias so the correct UART is selected on Pi 3/4 models
     lora_port: str = "/dev/serial0"         # Alias points to ttyAMA0 or ttyS0 depending on model
     lora_baud: int = 115200                 # Baud rate for LoRa HAT communication
-    lora_transparent_mode: bool = True      # True = raw bytes, False = AT commands (not implemented)
+    lora_transparent_mode: bool = False      # True = raw bytes, False = AT+SEND command mode
     
     # ==================== Timing Configuration ====================
     # How often to send telemetry packets

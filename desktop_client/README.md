@@ -117,6 +117,33 @@ If your port doesn't appear in the dropdown:
 2. Install CH340/CP210x drivers if needed
 3. Restart the application
 
+### Forcing the Waveshare USB LoRa Dongle to 915 MHz (US band)
+
+The Waveshare USB LoRa stick ships in transparent UART mode, so the desktop app cannot command it to retune on the fly. If your spectrum analyzer still reports **868 MHz**, reprogram the dongle once and it will stay on **915 MHz** until changed again.
+
+1. **Quit the Baja Telemetry app** so nothing is using the serial port.
+2. **Confirm the macOS device path** (already done for you):
+  ```bash
+  ls /dev/cu.usb* /dev/tty.usb*
+  ```
+  Latest output: `/dev/cu.usbmodem58960341261` (TTY twin is the same number).
+3. **Move to a Windows environment** (native PC, Boot Camp, or a Windows VM/Parallels/Fusion). Waveshare’s "RF Setting" utility only runs on Windows.
+4. **Download and install** from Waveshare’s SX1262 USB LoRa wiki:
+  - CP210x/CH340 serial driver (if Windows doesn’t already have one)
+  - `RF Setting` configuration utility (zip contains `RFSetting.exe`)
+5. **Enter configuration mode:** unplug the dongle, press and hold the lone push button, plug the dongle into Windows while keeping the button pressed for ~2 seconds, then release. The status LED will slow-blink and Windows will enumerate a new COM port (check Device Manager → Ports (COM & LPT)).
+6. **Program the US profile inside RF Setting:**
+  - Launch `RFSetting.exe`
+  - Select the COM port that just appeared and click *Open*
+  - Set **Frequency** to `915.0 MHz` (or `915000000 Hz` depending on UI)
+  - Match the Pi settings: e.g. Bandwidth `125 kHz`, Spreading Factor `SF9` (or whatever you use), Coding Rate `4/5`, TX power 20–22 dBm, air data rate `62.5 kbps` if available
+  - Ensure *Transparent / UART* mode is selected (not WOR or fixed-point)
+  - Click *Write* and wait for the success prompt, then *Close*
+7. **Return to transparent runtime:** unplug the dongle, plug it back in **without** holding the button (LED steady). Move it back to the Mac.
+8. **Verify on macOS** by rerunning the port check command above, launching Baja Telemetry, hitting **Start Test TX**, and using your Flipper (or other SDR) to confirm it now transmits at ~915 MHz.
+
+> Tip: If you ever need to retune again, repeat steps 5–7. There is no way to change the RF band from the Electron app because the dongle exposes only a raw serial pipe when M0/M1 are tied low.
+
 ## Data Format
 
 The app expects JSON packets from the Raspberry Pi in this format:
