@@ -65,6 +65,7 @@ npm start
   - 🔄 Reset button - Clear the track path
   - Double-click map - Set start/finish line location
   - Drag map - Disables auto-centering (click 📍 to re-enable)
+  - Light/Dark toggle - Switch themes for indoor vs. bright-sun viewing
 
 - **Lap Timing**
   - Current lap time updates in real-time
@@ -83,6 +84,7 @@ Settings are automatically saved, including:
 - Start/finish line location
 - Serial port selection
 - Map view preferences
+- Theme preference (light or dark)
 
 Configuration file location:
 - macOS: `~/Library/Application Support/baja-telemetry-client/`

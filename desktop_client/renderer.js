@@ -37,6 +37,12 @@ const testTransmitState = {
   busy: false
 };
 
+const themeState = {
+  mode: 'dark'
+};
+
+const THEME_STORAGE_KEY = 'bajaTelemetryTheme';
+
 const penaltyOutcomeRules = [
   {
     penaltyId: 'fuel-possession',
@@ -273,6 +279,15 @@ function setupEventListeners() {
   // Connection controls
   document.getElementById('connectBtn').addEventListener('click', connectToSerial);
   document.getElementById('disconnectBtn').addEventListener('click', disconnectFromSerial);
+
+  const themeToggleBtn = document.getElementById('themeToggleBtn');
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', () => {
+      const nextTheme = themeState.mode === 'light' ? 'dark' : 'light';
+      applyTheme(nextTheme);
+      persistThemePreference(nextTheme);
+    });
+  }
 
   const testBtn = document.getElementById('testTxBtn');
   if (testBtn) {
@@ -1433,13 +1448,73 @@ function formatLocalTimestamp(value) {
   });
 }
 
+function initTheme(config) {
+  const preferred = getPreferredTheme(config);
+  applyTheme(preferred);
+}
+
+function getPreferredTheme(config) {
+  if (config && typeof config.uiTheme === 'string') {
+    return config.uiTheme;
+  }
+
+  try {
+    const cached = localStorage.getItem(THEME_STORAGE_KEY);
+    if (cached === 'light' || cached === 'dark') {
+      return cached;
+    }
+  } catch (error) {
+    console.warn('Unable to read cached theme preference:', error);
+  }
+
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+    return 'light';
+  }
+  return 'dark';
+}
+
+function applyTheme(mode) {
+  const normalized = mode === 'light' ? 'light' : 'dark';
+  themeState.mode = normalized;
+
+  if (document.documentElement) {
+    document.documentElement.setAttribute('data-theme', normalized);
+  }
+  if (document.body) {
+    document.body.setAttribute('data-theme', normalized);
+  }
+
+  const toggle = document.getElementById('themeToggleBtn');
+  if (toggle) {
+    const label = normalized === 'light' ? 'Switch to dark mode' : 'Switch to light mode';
+    toggle.textContent = normalized === 'light' ? 'Dark Mode' : 'Light Mode';
+    toggle.setAttribute('aria-label', label);
+    toggle.title = label;
+  }
+}
+
+function persistThemePreference(mode) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, mode);
+  } catch (error) {
+    console.warn('Unable to cache theme preference:', error);
+  }
+
+  if (window?.electronAPI?.saveConfig) {
+    window.electronAPI.saveConfig({ uiTheme: mode }).catch((error) => {
+      console.warn('Failed to persist theme preference:', error);
+    });
+  }
+}
+
 /**
  * Save configuration to disk
  */
 async function saveConfiguration() {
   const config = {
     startFinishLine: lapManager.startFinishLine,
-    autoCenter: trackMap.autoCenter
+    autoCenter: trackMap.autoCenter,
+    uiTheme: themeState.mode
   };
 
   try {
@@ -1454,34 +1529,38 @@ async function saveConfiguration() {
  * Load configuration from disk
  */
 async function loadConfiguration() {
+  let config = null;
   try {
-    const config = await window.electronAPI.loadConfig();
-    
-    if (config) {
-      // Restore start/finish line
-      if (config.startFinishLine && config.startFinishLine.lat) {
-        lapManager.setStartFinishLine(
-          config.startFinishLine.lat,
-          config.startFinishLine.lon,
-          config.startFinishLine.radius
-        );
-        trackMap.setStartFinishLine(
-          config.startFinishLine.lat,
-          config.startFinishLine.lon,
-          config.startFinishLine.radius
-        );
-      }
-
-      // Restore auto-center setting
-      if (config.autoCenter !== undefined) {
-        trackMap.setAutoCenter(config.autoCenter);
-      }
-
-      console.log('Configuration loaded');
-    }
+    config = await window.electronAPI.loadConfig();
   } catch (error) {
     console.error('Failed to load configuration:', error);
   }
+
+  if (config) {
+    // Restore start/finish line
+    if (config.startFinishLine && config.startFinishLine.lat) {
+      lapManager.setStartFinishLine(
+        config.startFinishLine.lat,
+        config.startFinishLine.lon,
+        config.startFinishLine.radius
+      );
+      trackMap.setStartFinishLine(
+        config.startFinishLine.lat,
+        config.startFinishLine.lon,
+        config.startFinishLine.radius
+      );
+    }
+
+    // Restore auto-center setting
+    if (config.autoCenter !== undefined) {
+      trackMap.setAutoCenter(config.autoCenter);
+    }
+
+    console.log('Configuration loaded');
+  }
+
+  initTheme(config);
+  return config;
 }
 
 /**

@@ -33,12 +33,26 @@
   --font-mono: 'SF Mono', Monaco, 'Courier New', monospace;
 }
 
+:root[data-theme="light"] {
+  --bg-primary: #f7f9fc;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #eef2f7;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --accent-primary: #0057ff;
+  --accent-success: #1b9a4b;
+  --accent-warning: #d97706;
+  --accent-danger: #c53030;
+  --border-color: #d0d8e4;
+}
+
 body {
   font-family: var(--font-family);
   background: var(--bg-primary);
   color: var(--text-primary);
   overflow: hidden;
   height: 100vh;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Header */
@@ -49,6 +63,7 @@ body {
   padding: var(--spacing-lg) var(--spacing-md) var(--spacing-md);
   background: var(--bg-secondary);
   border-bottom: 2px solid var(--border-color);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 .header-left {
@@ -78,6 +93,7 @@ body {
   background: var(--bg-tertiary);
   border-radius: 20px;
   font-size: 14px;
+  transition: background-color 0.3s ease;
 }
 
 .status-dot {
@@ -167,6 +183,10 @@ body {
   background: var(--bg-tertiary);
 }
 
+.theme-toggle {
+  min-width: 120px;
+}
+
 /* Port selector */
 .port-select {
   padding: var(--spacing-sm) var(--spacing-md);
@@ -210,6 +230,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 .panel-header {
@@ -218,6 +239,7 @@ body {
   align-items: center;
   padding: var(--spacing-md);
   border-bottom: 1px solid var(--border-color);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 .panel-header h2 {
@@ -246,12 +268,14 @@ body {
   flex: 1;
   background: var(--bg-tertiary);
   position: relative;
+  transition: background-color 0.3s ease;
 }
 
 .map-footer {
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--bg-tertiary);
   border-top: 1px solid var(--border-color);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 .telemetry-mini {
@@ -354,6 +378,7 @@ body {
   padding: var(--spacing-sm);
   background: var(--bg-tertiary);
   border-radius: 6px;
+  transition: background-color 0.3s ease;
 }
 
 .info-row .label {
