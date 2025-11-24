@@ -13,7 +13,7 @@
   <!-- Header bar with connection controls -->
   <header class="app-header">
     <div class="header-left">
-      <h1>🏁 Baja Telemetry</h1>
+  <h1>Baja Telemetry</h1>
       <div class="connection-status" id="connectionStatus">
         <span class="status-dot disconnected"></span>
         <span class="status-text">Disconnected</span>
@@ -38,24 +38,27 @@
       <div class="panel-header">
         <h2>Track Map</h2>
         <div class="map-controls">
-          <button id="centerMapBtn" class="btn-icon" title="Center on car">📍</button>
-          <button id="resetTrackBtn" class="btn-icon" title="Clear track">🔄</button>
+          <button id="centerTrackBtn" class="btn-icon" title="Show entire track">📍</button>
+          <button id="centerCarBtn" class="btn-icon" title="Center on car">🏎️</button>
           <!-- Toggle between map tile and satellite imagery -->
           <button id="toggleMapTypeBtn" class="btn-icon" title="Toggle satellite / map">🛰️</button>
-          <button id="drawTrackBtn" class="btn-icon" title="Draw track">✏️</button>
-          <button id="editTrackBtn" class="btn-icon" title="Edit track">🛠️</button>
+          <button id="editTrackBtn" class="btn-icon" title="Draw/Edit track">🛠️</button>
           <button id="saveTrackBtn" class="btn-icon" title="Save track">💾</button>
           <button id="importTrackBtn" class="btn-icon" title="Import track">📁</button>
         </div>
       </div>
       <div id="map" class="map-container"></div>
-      <div class="map-terminal">
+      <div class="map-terminal" id="mapTerminal">
         <div class="map-terminal-header">
           <div>
             <div class="terminal-title">LoRa Command Console</div>
             <div class="terminal-hint">Send quick commands to the car ECU</div>
+            <div class="console-collapsed-label">Console hidden — tap Show to expand</div>
           </div>
-          <button id="clearCommandLogBtn" class="btn-icon" title="Clear console">🧹</button>
+          <div class="map-terminal-actions">
+            <button id="toggleConsoleBtn" class="btn btn-secondary btn-compact">Hide Console</button>
+            <button id="clearCommandLogBtn" class="btn-icon" title="Clear console">🗑️</button>
+          </div>
         </div>
         <div class="map-terminal-log" id="commandLog">
           <div class="empty-state">No commands sent yet</div>
@@ -87,7 +90,30 @@
         <div class="current-lap-display">
           <div class="speedometer-widget">
             <div class="speedometer-gauge" aria-label="Current speed">
+              <div class="speedometer-scale">
+                <span class="speedometer-tick" style="--angle:-130deg;">
+                  <span class="tick-mark"></span>
+                  <span class="tick-label">0</span>
+                </span>
+                <span class="speedometer-tick" style="--angle:-65deg;">
+                  <span class="tick-mark"></span>
+                  <span class="tick-label">10</span>
+                </span>
+                <span class="speedometer-tick" style="--angle:0deg;">
+                  <span class="tick-mark"></span>
+                  <span class="tick-label">20</span>
+                </span>
+                <span class="speedometer-tick" style="--angle:65deg;">
+                  <span class="tick-mark"></span>
+                  <span class="tick-label">30</span>
+                </span>
+                <span class="speedometer-tick" style="--angle:130deg;">
+                  <span class="tick-mark"></span>
+                  <span class="tick-label">40</span>
+                </span>
+              </div>
               <div class="speedometer-needle" id="speedNeedle"></div>
+              <div class="speedometer-center-cap"></div>
               <div class="speedometer-value">
                 <span id="speedValue">0</span>
                 <span class="speed-unit">mph</span>
@@ -103,20 +129,10 @@
               <div class="delta-value" id="deltaValue">--</div>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- Best lap info -->
-      <div class="best-lap-section">
-        <h3>Best Lap</h3>
-        <div class="best-lap-info">
-          <div class="info-row">
-            <span class="label">Time:</span>
-            <span class="value" id="bestLapTime">--</span>
-          </div>
-          <div class="info-row">
-            <span class="label">Lap #:</span>
-            <span class="value" id="bestLapNum">--</span>
+          <div class="best-lap-inline">
+            <div class="best-lap-inline-label">Best Lap</div>
+            <div class="best-lap-inline-time" id="bestLapTime">--</div>
+            <div class="best-lap-inline-meta">Lap <span id="bestLapNum">--</span></div>
           </div>
         </div>
       </div>

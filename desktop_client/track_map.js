@@ -45,12 +45,12 @@ class TrackMap {
     // Auto-centering flag
     this.autoCenter = true;
 
-    // Custom car icon
+    // Custom car icon - using a bright blue circle with white border to represent the car position
     this.carIcon = L.divIcon({
       className: 'car-marker',
-      html: '<div style="background: #00d4ff; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,212,255,0.8);"></div>',
-      iconSize: [16, 16],
-      iconAnchor: [8, 8]
+      html: '<div style="background: #00d4ff; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,212,255,0.8);"></div>',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10]
     });
 
     // Start/finish flag icon
@@ -139,7 +139,11 @@ class TrackMap {
 
     // Auto-center map if enabled
     if (this.autoCenter) {
-      this.map.panTo([lat, lon], { animate: true, duration: 0.5 });
+      this.map.panTo([lat, lon], { 
+        animate: true, 
+        duration: 0.5,
+        easeLinearity: 0.5
+      });
     }
   }
 
@@ -214,7 +218,11 @@ class TrackMap {
   centerOnCar() {
     if (this.carMarker) {
       const pos = this.carMarker.getLatLng();
-      this.map.setView(pos, this.map.getZoom(), { animate: true });
+      // Use setView with zoom level to ensure proper centering
+      this.map.setView(pos, Math.max(this.map.getZoom(), 17), { 
+        animate: true,
+        pan: { animate: true, duration: 0.5 }
+      });
     }
   }
 
@@ -263,10 +271,21 @@ class TrackMap {
    * Fit map view to show the entire track
    */
   fitTrack() {
-    if (this.trackPoints.length > 0) {
-      const bounds = L.latLngBounds(this.trackPoints);
-      this.map.fitBounds(bounds, { padding: [50, 50] });
+    const activePoints = this.getActiveTrackLatLngs();
+    if (activePoints.length > 1) {
+      const latLngs = activePoints.map((point) => L.latLng(point.lat, point.lng));
+      const bounds = L.latLngBounds(latLngs);
+      
+      // Use paddingTopLeft and paddingBottomRight for better control
+      // This ensures the track is centered within the visible map area
+      this.map.fitBounds(bounds, { 
+        paddingTopLeft: [50, 50],
+        paddingBottomRight: [50, 50],
+        maxZoom: 18  // Prevent zooming in too much on small tracks
+      });
+      return true;
     }
+    return false;
   }
 
   /**

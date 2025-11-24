@@ -43,7 +43,7 @@ const themeState = {
 
 const SIMULATION_SPEED_MPH = 25;
 const MPH_TO_MPS = 0.44704;
-const SPEEDOMETER_MAX_MPH = 60;
+const SPEEDOMETER_MAX_MPH = 40;
 const SPEEDOMETER_MIN_ANGLE = -130;
 const SPEEDOMETER_MAX_ANGLE = 130;
 
@@ -80,6 +80,10 @@ const speedState = {
 
 const commandLogState = {
   entries: []
+};
+
+const consoleState = {
+  collapsed: false
 };
 
 const THEME_STORAGE_KEY = 'bajaTelemetryTheme';
@@ -343,16 +347,27 @@ function setupEventListeners() {
   }
 
   // Map controls
-  document.getElementById('centerMapBtn').addEventListener('click', () => {
-    trackMap.centerOnCar();
-    trackMap.setAutoCenter(true);
-  });
+  const centerTrackBtn = document.getElementById('centerTrackBtn');
+  if (centerTrackBtn) {
+    centerTrackBtn.addEventListener('click', () => {
+      // Disable auto-centering so map stops following the car
+      trackMap.setAutoCenter(false);
+      // Ensure map size is correct before fitting bounds (important after resize)
+      trackMap.map.invalidateSize();
+      const success = trackMap.fitTrack();
+      if (!success) {
+        trackMap.centerOnCar();
+      }
+    });
+  }
 
-  document.getElementById('resetTrackBtn').addEventListener('click', () => {
-    if (confirm('Clear the current track path?')) {
-      trackMap.clearTrack();
-    }
-  });
+  const centerCarBtn = document.getElementById('centerCarBtn');
+  if (centerCarBtn) {
+    centerCarBtn.addEventListener('click', () => {
+      trackMap.centerOnCar();
+      trackMap.setAutoCenter(true);
+    });
+  }
 
   // Map type toggle (satellite vs tiles)
   document.getElementById('toggleMapTypeBtn').addEventListener('click', () => {
@@ -364,18 +379,14 @@ function setupEventListeners() {
   });
 
   // Draw/Edit/Save/Import track controls
-  document.getElementById('drawTrackBtn').addEventListener('click', () => {
-    trackMap.enableDrawing();
-    alert('Drawing enabled: use the draw toolbar to trace the track. When finished, click the save button.');
-  });
-
   document.getElementById('editTrackBtn').addEventListener('click', () => {
-    // Toggle editing: enabling drawing control also provides edit/remove UI
+    // Toggle drawing/editing: enabling drawing control also provides edit/remove UI
     if (trackMap._drawingEnabled) {
       trackMap.disableDrawing();
       alert('Drawing disabled. Use Save to persist track.');
     } else {
       trackMap.enableDrawing();
+      alert('Drawing enabled: use the draw toolbar to trace the track. When finished, click the save button.');
     }
   });
 
@@ -566,6 +577,12 @@ function setupEventListeners() {
 
     if (clearCommandLogBtn) {
       clearCommandLogBtn.addEventListener('click', () => clearCommandLog());
+    }
+
+    const toggleConsoleBtn = document.getElementById('toggleConsoleBtn');
+    if (toggleConsoleBtn) {
+      toggleConsoleBtn.addEventListener('click', () => toggleConsoleVisibility());
+      updateConsoleToggleState();
     }
 
     renderCommandLog();
@@ -1384,6 +1401,28 @@ function renderCommandLog() {
     container.appendChild(row);
   });
   container.scrollTop = container.scrollHeight;
+}
+
+function toggleConsoleVisibility(forceCollapsed) {
+  const terminal = document.getElementById('mapTerminal');
+  if (!terminal) return;
+
+  const nextState = typeof forceCollapsed === 'boolean'
+    ? forceCollapsed
+    : !consoleState.collapsed;
+
+  consoleState.collapsed = nextState;
+  terminal.classList.toggle('collapsed', nextState);
+  updateConsoleToggleState();
+}
+
+function updateConsoleToggleState() {
+  const toggleBtn = document.getElementById('toggleConsoleBtn');
+  if (toggleBtn) {
+    toggleBtn.textContent = consoleState.collapsed ? 'Show Console' : 'Hide Console';
+    toggleBtn.title = consoleState.collapsed ? 'Expand the LoRa console' : 'Hide the LoRa console';
+    toggleBtn.setAttribute('aria-expanded', (!consoleState.collapsed).toString());
+  }
 }
 
 function formatCommandTimestamp(date) {
