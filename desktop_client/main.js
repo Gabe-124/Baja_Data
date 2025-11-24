@@ -5,7 +5,7 @@
  * and IPC (inter-process communication) between the Node.js backend and the UI renderer.
  */
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const LoRaReceiver = require('./lora_receiver');
 const fs = require('fs');
@@ -267,6 +267,41 @@ ipcMain.handle('save-config', async (event, config) => {
     console.error('Failed to save config:', err);
     throw err;
   }
+});
+
+// Save a track GeoJSON file to disk via native dialog
+ipcMain.handle('save-track-file', async (event, options = {}) => {
+  const { geojson, suggestedName = 'baja-track.geojson', defaultPath } = options;
+  if (!geojson) {
+    throw new Error('No GeoJSON payload provided');
+  }
+
+  const targetWindow = BrowserWindow.getFocusedWindow() || mainWindow;
+  const documentsDir = app.getPath('documents');
+  const fallbackPath = path.join(documentsDir, suggestedName || 'baja-track.geojson');
+
+  const dialogResult = await dialog.showSaveDialog(targetWindow, {
+    title: 'Save Track Layout',
+    defaultPath: defaultPath || fallbackPath,
+    buttonLabel: 'Save Track',
+    filters: [
+      { name: 'GeoJSON', extensions: ['geojson', 'json'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+
+  if (dialogResult.canceled || !dialogResult.filePath) {
+    return { canceled: true };
+  }
+
+  try {
+    fs.writeFileSync(dialogResult.filePath, JSON.stringify(geojson, null, 2), 'utf8');
+  } catch (error) {
+    console.error('Failed to save track file:', error);
+    throw error;
+  }
+
+  return { canceled: false, filePath: dialogResult.filePath };
 });
 
 // Load configuration

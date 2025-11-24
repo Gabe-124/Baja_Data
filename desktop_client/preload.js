@@ -42,6 +42,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadConfig: () => ipcRenderer.invoke('load-config'),
 
   /**
+   * Prompt the user to save a track GeoJSON file
+   * @param {Object} payload - { geojson: Feature, suggestedName?: string, defaultPath?: string }
+   * @returns {Promise<{canceled: boolean, filePath?: string}>}
+   */
+  saveTrackFile: (payload) => ipcRenderer.invoke('save-track-file', payload),
+
+  /**
    * Listen for telemetry data from the LoRa receiver
    * @param {Function} callback - Function to call when data is received
    */

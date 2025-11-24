@@ -216,6 +216,13 @@ To export track as GeoJSON:
 trackMap.exportTrackGeoJSON()
 ```
 
+### Saving Track Layouts from the UI
+
+- Click the 💾 Save Track button (above the map tools).
+- Choose a destination file when the operating system save dialog appears (defaults to your Documents folder) and press **Save**.
+- The app writes the current drawn layout (or the last recorded GPS trace if no custom layout exists) to that `.geojson` file **and** stores a copy in its config so the track is automatically restored the next time you launch the app.
+- To re-use the saved file elsewhere, just choose the 📁 Import button and pick the `.geojson` file you previously exported.
+
 ## Advanced Configuration
 
 ### Changing Detection Radius

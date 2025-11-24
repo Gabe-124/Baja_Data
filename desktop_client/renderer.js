@@ -333,18 +333,48 @@ function setupEventListeners() {
   });
 
   document.getElementById('saveTrackBtn').addEventListener('click', async () => {
-    const geo = trackMap.getDrawnTrackGeoJSON();
+    let geo = trackMap.getDrawnTrackGeoJSON();
+    let source = 'drawn';
+
+    if (!geo && Array.isArray(trackMap.trackPoints) && trackMap.trackPoints.length >= 2) {
+      geo = trackMap.exportTrackGeoJSON();
+      source = 'recorded';
+    }
+
     if (!geo) {
-      alert('No drawn track to save. Draw or import a track first.');
+      alert('No track to save. Draw a layout or record laps first.');
       return;
     }
 
-    // Wrap into a Feature if necessary
-    const feature = geo.type === 'Feature' ? geo : { type: 'Feature', geometry: geo.geometry || geo, properties: { name: 'Baja Track' } };
+    const feature = geo.type === 'Feature'
+      ? geo
+      : { type: 'Feature', geometry: geo.geometry || geo, properties: geo.properties || { name: 'Baja Track' } };
 
     try {
-      await window.electronAPI.saveConfig({ trackGeoJSON: feature });
-      alert('Track saved to application config.');
+      let savedFilePath = null;
+      if (window.electronAPI?.saveTrackFile) {
+        const result = await window.electronAPI.saveTrackFile({
+          geojson: feature,
+          suggestedName: source === 'drawn' ? 'baja-track-layout.geojson' : 'baja-track-session.geojson'
+        });
+
+        if (result?.canceled) {
+          alert('Track save canceled.');
+          return;
+        }
+        savedFilePath = result?.filePath || null;
+      }
+
+      await window.electronAPI.saveConfig({
+        trackGeoJSON: feature,
+        lastTrackFilePath: savedFilePath
+      });
+
+      if (savedFilePath) {
+        alert(`Track saved to ${savedFilePath}\nIt will automatically reload on the next launch.`);
+      } else {
+        alert('Track saved to application config.');
+      }
     } catch (err) {
       console.error('Failed to save track:', err);
       alert('Failed to save track. Check logs.');
@@ -1554,6 +1584,14 @@ async function loadConfiguration() {
     // Restore auto-center setting
     if (config.autoCenter !== undefined) {
       trackMap.setAutoCenter(config.autoCenter);
+    }
+
+    if (config.trackGeoJSON) {
+      try {
+        trackMap.importTrackGeoJSON(config.trackGeoJSON);
+      } catch (error) {
+        console.warn('Failed to restore saved track:', error);
+      }
     }
 
     console.log('Configuration loaded');
