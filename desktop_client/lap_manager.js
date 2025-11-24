@@ -91,6 +91,17 @@ class LapManager {
     const { latitude, longitude, timestamp } = telemetry;
     const now = new Date(timestamp).getTime();
 
+    // Calculate incremental distance from last fix
+    let segmentDistance = 0;
+    if (this.lastPosition && this.lastPosition.latitude !== undefined && this.lastPosition.longitude !== undefined) {
+      segmentDistance = this.calculateDistance(
+        this.lastPosition.latitude,
+        this.lastPosition.longitude,
+        latitude,
+        longitude
+      );
+    }
+
     // Check if we're at the start/finish line
     const atStartFinish = this.isAtStartFinish(latitude, longitude);
 
@@ -115,6 +126,15 @@ class LapManager {
     if (this.currentLap) {
       const elapsed = now - this.currentLap.startTime;
       this.currentLap.currentTime = elapsed;
+      this.currentLap.distanceTraveled += segmentDistance;
+
+      // Record lap samples for delta computation
+      if (this.currentLap.samples && this.currentLap.samples.length === 0) {
+        this.currentLap.samples.push({ elapsed: 0, distance: 0 });
+      }
+      if (segmentDistance > 0 || !this.currentLap.samples.length) {
+        this.currentLap.samples.push({ elapsed, distance: this.currentLap.distanceTraveled });
+      }
 
       // Trigger UI update callback
       if (this.onCurrentTimeUpdate) {
@@ -135,7 +155,9 @@ class LapManager {
       startTime: startTime,
       currentTime: 0,
       endTime: null,
-      finalTime: null
+      finalTime: null,
+      distanceTraveled: 0,
+      samples: [{ elapsed: 0, distance: 0 }]
     };
 
     console.log(`Started lap ${this.currentLap.lapNumber}`);
@@ -151,6 +173,14 @@ class LapManager {
     const lapTime = endTime - this.currentLap.startTime;
     this.currentLap.endTime = endTime;
     this.currentLap.finalTime = lapTime;
+    if (!this.currentLap.samples || this.currentLap.samples.length === 0) {
+      this.currentLap.samples = [{ elapsed: lapTime, distance: this.currentLap.distanceTraveled }];
+    } else {
+      const lastSample = this.currentLap.samples[this.currentLap.samples.length - 1];
+      if (!lastSample || lastSample.distance !== this.currentLap.distanceTraveled) {
+        this.currentLap.samples.push({ elapsed: lapTime, distance: this.currentLap.distanceTraveled });
+      }
+    }
 
     // Add to laps array
     this.laps.push({ ...this.currentLap });
@@ -178,7 +208,47 @@ class LapManager {
       return null;
     }
 
-    return this.currentLap.currentTime - this.bestLapTime;
+    const bestLap = this.getBestLap();
+    if (!bestLap || !Array.isArray(bestLap.samples) || bestLap.samples.length < 2) {
+      return this.currentLap.currentTime - this.bestLapTime;
+    }
+
+    const currentDistance = this.currentLap.distanceTraveled || 0;
+    const totalDistance = bestLap.distanceTraveled || bestLap.samples[bestLap.samples.length - 1].distance || 0;
+    if (totalDistance <= 0) {
+      return this.currentLap.currentTime - this.bestLapTime;
+    }
+
+    const targetTime = this._estimateLapTimeAtDistance(bestLap.samples, currentDistance, totalDistance);
+    if (targetTime === null) {
+      return this.currentLap.currentTime - this.bestLapTime;
+    }
+    return this.currentLap.currentTime - targetTime;
+  }
+
+  _estimateLapTimeAtDistance(samples, distance, totalDistance) {
+    if (!Array.isArray(samples) || samples.length === 0) {
+      return null;
+    }
+
+    if (distance >= totalDistance) {
+      const last = samples[samples.length - 1];
+      return last?.elapsed ?? null;
+    }
+
+    let prev = samples[0];
+    for (let i = 1; i < samples.length; i++) {
+      const curr = samples[i];
+      if (curr.distance >= distance) {
+        const span = curr.distance - prev.distance;
+        const ratio = span > 0 ? (distance - prev.distance) / span : 0;
+        return prev.elapsed + (curr.elapsed - prev.elapsed) * ratio;
+      }
+      prev = curr;
+    }
+
+    const last = samples[samples.length - 1];
+    return last?.elapsed ?? null;
   }
 
   /**
@@ -264,6 +334,10 @@ class LapManager {
       this.bestLapTime = null;
       this.bestLapIndex = null;
       this.laps.forEach((lap, index) => {
+        if (!lap.samples) {
+          lap.samples = [];
+        }
+        lap.distanceTraveled = lap.distanceTraveled || (lap.samples.length ? lap.samples[lap.samples.length - 1].distance : 0);
         if (this.bestLapTime === null || lap.finalTime < this.bestLapTime) {
           this.bestLapTime = lap.finalTime;
           this.bestLapIndex = index;

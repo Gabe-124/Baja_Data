@@ -372,6 +372,34 @@ class TrackMap {
     return null;
   }
 
+  /**
+   * Return the active track polyline as an array of {lat, lng} objects.
+   * Prefers the drawn track; falls back to recorded GPS points if available.
+   * @returns {Array<{lat:number,lng:number}>}
+   */
+  getActiveTrackLatLngs() {
+    try {
+      const layers = this.drawLayer?.getLayers?.();
+      if (layers && layers.length > 0) {
+        const layer = layers[0];
+        if (layer && typeof layer.getLatLngs === 'function') {
+          const normalized = this._normalizeLatLngs(layer.getLatLngs());
+          if (normalized.length >= 2) {
+            return normalized.map((point) => ({ lat: point.lat, lng: point.lng }));
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to read drawn track points:', error);
+    }
+
+    if (Array.isArray(this.trackPoints) && this.trackPoints.length >= 2) {
+      return this.trackPoints.map((pt) => ({ lat: pt[0], lng: pt[1] }));
+    }
+
+    return [];
+  }
+
   _finalizeDrawnTrackLayer(layer) {
     if (!layer || typeof layer.getLatLngs !== 'function') return;
     const latlngs = this._normalizeLatLngs(layer.getLatLngs());

@@ -264,6 +264,38 @@ class LoRaReceiver extends EventEmitter {
   }
 
   /**
+   * Send an arbitrary command string to the connected LoRa/ESP32 device
+   * @param {string} command
+   * @returns {Promise<boolean>}
+   */
+  sendCommand(command) {
+    if (!this.port || !this.connected || !this.port.isOpen) {
+      throw new Error('Connect to a LoRa receiver before sending commands.');
+    }
+
+    const line = typeof command === 'string' ? command : String(command ?? '');
+    const payload = line.trimEnd() + '\n';
+
+    return new Promise((resolve, reject) => {
+      this.port.write(payload, (err) => {
+        if (err) {
+          console.error('Failed to write command:', err);
+          reject(err);
+        } else {
+          this.port.drain((drainErr) => {
+            if (drainErr) {
+              console.error('Failed to drain command:', drainErr);
+              reject(drainErr);
+            } else {
+              resolve(true);
+            }
+          });
+        }
+      });
+    });
+  }
+
+  /**
    * Close the receiver and clean up resources
    */
   close() {

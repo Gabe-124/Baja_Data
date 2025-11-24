@@ -482,3 +482,18 @@ ipcMain.handle('test-transmit-status', async () => {
   }
   return loraReceiver.getTestTransmitStatus();
 });
+
+ipcMain.handle('send-lora-command', async (event, payload = {}) => {
+  if (!loraReceiver) {
+    initLoRaReceiver();
+  }
+  if (!loraReceiver) {
+    throw new Error('LoRa receiver unavailable');
+  }
+  const command = typeof payload === 'string' ? payload : payload.command;
+  if (!command || !command.toString().trim()) {
+    throw new Error('Command cannot be empty');
+  }
+  await loraReceiver.sendCommand(command.toString());
+  return { ok: true };
+});

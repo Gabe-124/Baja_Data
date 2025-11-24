@@ -58,6 +58,17 @@ npm start
    - The app will auto-detect lap completion when crossing this zone
 5. **Test the USB Link (optional)** - After connecting, click **Start Test TX** to stream synthetic telemetry packets at 915 MHz. Click the button again (or disconnect/close the app) to stop the transmission.
 
+### No-Hardware Simulation Mode
+
+Want to poke around the dashboard without a Raspberry Pi or LoRa radio nearby? Use the **Start Simulation** button in the header:
+
+1. Launch the desktop app (no cables required).
+2. Click **Start Simulation** – the lap table and map reset, then begin receiving fake GPS packets that drive a smooth loop around the map.
+3. Watch the track trace, lap timer, and delta widgets update exactly as they would on race day.
+4. Click **Stop Simulation** when you are ready to reconnect real hardware; the Connect button will re-enable automatically.
+
+> Note: The simulation intentionally disables the hardware test-transmit button. Stop the simulator before plugging in the LoRa receiver so the app can take control of the real serial port again.
+
 ### During a Session
 
 - **Map Controls**

@@ -196,5 +196,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (event, status) => callback(status);
     ipcRenderer.on(channel, handler);
     return () => ipcRenderer.removeListener(channel, handler);
-  }
+  },
+
+  /**
+   * Send arbitrary command text over the LoRa serial link
+   * @param {string|Object} payload
+   */
+  sendLoRaCommand: (payload) => ipcRenderer.invoke('send-lora-command', payload)
 });

@@ -41,6 +41,47 @@ const themeState = {
   mode: 'dark'
 };
 
+const SIMULATION_SPEED_MPH = 25;
+const MPH_TO_MPS = 0.44704;
+const SPEEDOMETER_MAX_MPH = 60;
+const SPEEDOMETER_MIN_ANGLE = -130;
+const SPEEDOMETER_MAX_ANGLE = 130;
+
+const simulationState = {
+  running: false,
+  intervalId: null,
+  sequence: 0,
+  intervalMs: 500,
+  speedMps: SIMULATION_SPEED_MPH * MPH_TO_MPS,
+  pathSegments: [],
+  segmentSpeedFactors: [],
+  segmentIndex: 0,
+  distanceIntoSegment: 0,
+  totalLength: 0,
+  originLat: null,
+  originLon: null,
+  lapSpeedFactor: 1,
+  loopCounter: 0,
+  currentSpeedMps: SIMULATION_SPEED_MPH * MPH_TO_MPS,
+  gpsNoiseMeters: 0.5,
+  baseLat: 40.391234,
+  baseLon: -88.221234,
+  radiusMeters: 70
+};
+
+const lapSortState = {
+  mode: 'lapNumber'
+};
+
+const speedState = {
+  lastPoint: null,
+  currentMps: 0
+};
+
+const commandLogState = {
+  entries: []
+};
+
 const THEME_STORAGE_KEY = 'bajaTelemetryTheme';
 
 const penaltyOutcomeRules = [
@@ -295,6 +336,12 @@ function setupEventListeners() {
     updateTestTransmitButton();
   }
 
+  const simulateBtn = document.getElementById('simulateGpsBtn');
+  if (simulateBtn) {
+    simulateBtn.addEventListener('click', toggleSimulationMode);
+    updateSimulationButton();
+  }
+
   // Map controls
   document.getElementById('centerMapBtn').addEventListener('click', () => {
     trackMap.centerOnCar();
@@ -497,6 +544,31 @@ function setupEventListeners() {
     }
   });
 }
+    const lapSortToggleBtn = document.getElementById('lapSortToggleBtn');
+    if (lapSortToggleBtn) {
+      lapSortToggleBtn.addEventListener('click', toggleLapSortMode);
+      updateLapSortButton();
+    }
+
+    const sendCommandBtn = document.getElementById('sendCommandBtn');
+    const commandInput = document.getElementById('commandInput');
+    const clearCommandLogBtn = document.getElementById('clearCommandLogBtn');
+
+    if (sendCommandBtn && commandInput) {
+      sendCommandBtn.addEventListener('click', () => sendLoRaCommandFromInput());
+      commandInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          sendLoRaCommandFromInput();
+        }
+      });
+    }
+
+    if (clearCommandLogBtn) {
+      clearCommandLogBtn.addEventListener('click', () => clearCommandLog());
+    }
+
+    renderCommandLog();
 
 /**
  * Refresh the list of available serial ports
@@ -526,6 +598,11 @@ async function connectToSerial() {
   const portSelect = document.getElementById('portSelect');
   const selectedPort = portSelect.value;
 
+  if (simulationState.running) {
+    alert('Stop the simulation before connecting to a real LoRa receiver.');
+    return;
+  }
+
   if (!selectedPort) {
     alert('Please select a serial port');
     return;
@@ -554,12 +631,477 @@ async function disconnectFromSerial() {
   }
 }
 
+function toggleSimulationMode() {
+  if (simulationState.running) {
+    stopSimulationMode();
+  } else {
+    startSimulationMode();
+  }
+}
+
+function startSimulationMode() {
+  if (simulationState.running) return;
+  if (isConnected) {
+    alert('Disconnect from the LoRa receiver before starting simulation.');
+    return;
+  }
+
+  const preparedTrack = prepareSimulationTrack();
+  if (!preparedTrack) {
+    alert('Draw or import a track first (or record a lap) so the simulator knows where to drive.');
+    return;
+  }
+
+  simulationState.sequence = 0;
+  simulationState.running = true;
+  simulationState.pathSegments = preparedTrack.segments;
+  simulationState.segmentSpeedFactors = preparedTrack.segmentSpeedFactors;
+  simulationState.segmentIndex = preparedTrack.startSegmentIndex;
+  simulationState.distanceIntoSegment = preparedTrack.startDistanceIntoSegment;
+  simulationState.totalLength = preparedTrack.totalLength;
+  simulationState.originLat = preparedTrack.originLat;
+  simulationState.originLon = preparedTrack.originLon;
+  simulationState.loopCounter = 0;
+  simulationState.lapSpeedFactor = randomLapSpeedFactor();
+  simulationState.currentSpeedMps = simulationState.speedMps;
+
+  lapManager.clearLaps();
+  trackMap.clearTrack();
+  trackMap.setAutoCenter(true);
+
+  const emitTelemetry = (point) => {
+    const telemetry = buildSimulationTelemetry(point);
+    handleTelemetryData(telemetry);
+  };
+
+  emitTelemetry(preparedTrack.startPoint);
+
+  const tick = () => {
+    const point = advanceSimulationAlongTrack();
+    emitTelemetry(point);
+  };
+
+  simulationState.intervalId = setInterval(tick, simulationState.intervalMs);
+  handleConnectionStatus({ connected: true, port: 'Simulation Mode', simulation: true });
+  updateSimulationButton();
+}
+
+function stopSimulationMode() {
+  if (!simulationState.running) return;
+
+  if (simulationState.intervalId) {
+    clearInterval(simulationState.intervalId);
+    simulationState.intervalId = null;
+  }
+
+  simulationState.running = false;
+  simulationState.pathSegments = [];
+  simulationState.segmentSpeedFactors = [];
+  simulationState.segmentIndex = 0;
+  simulationState.distanceIntoSegment = 0;
+  simulationState.totalLength = 0;
+  simulationState.lapSpeedFactor = 1;
+  simulationState.currentSpeedMps = simulationState.speedMps;
+
+  handleConnectionStatus({ connected: false, port: null, simulation: true });
+  updateSimulationButton();
+}
+
+function updateSimulationButton() {
+  const btn = document.getElementById('simulateGpsBtn');
+  if (!btn) return;
+
+  btn.textContent = simulationState.running ? 'Stop Simulation' : 'Start Simulation';
+  btn.classList.toggle('btn-primary', simulationState.running);
+  btn.classList.toggle('btn-secondary', !simulationState.running);
+  btn.title = simulationState.running
+    ? 'Stop sending fake GPS packets to the dashboard'
+    : 'Generate fake GPS data without a LoRa radio';
+
+  // Keep the test transmit button disabled during simulation runs
+  updateTestTransmitButton();
+}
+
+function estimateSpeedMps(telemetry) {
+  if (!telemetry) {
+    return 0;
+  }
+
+  const timestampMs = getTelemetryTimestampMs(telemetry);
+  const hasCoords = typeof telemetry.latitude === 'number' && typeof telemetry.longitude === 'number';
+  let computed = null;
+
+  if (Number.isFinite(telemetry.speedMps)) {
+    computed = Math.max(0, telemetry.speedMps);
+  } else if (hasCoords && speedState.lastPoint) {
+    const deltaTime = (timestampMs - speedState.lastPoint.timestamp) / 1000;
+    if (deltaTime > 0.2 && deltaTime < 15) {
+      const distance = haversineDistance(
+        speedState.lastPoint.lat,
+        speedState.lastPoint.lon,
+        telemetry.latitude,
+        telemetry.longitude
+      );
+      computed = Math.max(0, distance / deltaTime);
+    }
+  }
+
+  if (hasCoords) {
+    speedState.lastPoint = {
+      lat: telemetry.latitude,
+      lon: telemetry.longitude,
+      timestamp: timestampMs
+    };
+  }
+
+  speedState.currentMps = computed ?? speedState.currentMps ?? 0;
+  return computed ?? speedState.currentMps ?? 0;
+}
+
+function updateSpeedometer(speedMps = 0) {
+  const mph = Math.max(0, speedMps / MPH_TO_MPS);
+  const clamped = Math.min(SPEEDOMETER_MAX_MPH, mph);
+  const ratio = SPEEDOMETER_MAX_MPH > 0 ? clamped / SPEEDOMETER_MAX_MPH : 0;
+  const angle = SPEEDOMETER_MIN_ANGLE + (SPEEDOMETER_MAX_ANGLE - SPEEDOMETER_MIN_ANGLE) * ratio;
+
+  const needle = document.getElementById('speedNeedle');
+  if (needle) {
+    needle.style.transform = `translateX(-50%) rotate(${angle}deg)`;
+  }
+
+  const valueElement = document.getElementById('speedValue');
+  if (valueElement) {
+    valueElement.textContent = Math.round(mph).toString().padStart(2, '0');
+  }
+}
+
+function getTelemetryTimestampMs(telemetry) {
+  if (!telemetry) {
+    return Date.now();
+  }
+  const raw = telemetry.timestamp || telemetry.ts;
+  if (raw) {
+    const parsed = new Date(raw).getTime();
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  if (typeof telemetry.time === 'number') {
+    return telemetry.time;
+  }
+  return Date.now();
+}
+
+function prepareSimulationTrack() {
+  let points = getSimulationTrackPoints();
+  let startFinish = getExistingStartFinishPoint();
+
+  if (!points.length) {
+    if (!startFinish) {
+      startFinish = { lat: simulationState.baseLat, lng: simulationState.baseLon };
+      lapManager.setStartFinishLine(startFinish.lat, startFinish.lng, 12);
+      trackMap.setStartFinishLine(startFinish.lat, startFinish.lng, 12);
+    }
+    points = buildCircularTrackPoints(startFinish, simulationState.radiusMeters);
+  } else {
+    if (!startFinish) {
+      startFinish = points[0];
+      const radius = lapManager.startFinishLine?.radius || 12;
+      lapManager.setStartFinishLine(startFinish.lat, startFinish.lng, radius);
+      trackMap.setStartFinishLine(startFinish.lat, startFinish.lng, radius);
+    }
+  }
+
+  const closedPoints = ensureLoopClosure(points.slice());
+  const path = buildPathSegments(closedPoints);
+  if (!path) {
+    return null;
+  }
+
+  const projection = projectPointOntoSegments(startFinish, path);
+  if (!projection) {
+    return null;
+  }
+
+  return {
+    ...path,
+    startSegmentIndex: projection.segmentIndex,
+    startDistanceIntoSegment: projection.distanceIntoSegment,
+    startPoint: projection.position
+  };
+}
+
+function getSimulationTrackPoints() {
+  try {
+    const points = trackMap.getActiveTrackLatLngs();
+    if (Array.isArray(points) && points.length >= 2) {
+      return points.map((pt) => ({ lat: pt.lat, lng: pt.lng }));
+    }
+  } catch (error) {
+    console.warn('Failed to read active track points for simulator:', error);
+  }
+  return [];
+}
+
+function getExistingStartFinishPoint() {
+  if (lapManager.startFinishLine?.lat && lapManager.startFinishLine?.lon) {
+    return { lat: lapManager.startFinishLine.lat, lng: lapManager.startFinishLine.lon };
+  }
+  return null;
+}
+
+function ensureLoopClosure(points) {
+  if (!points || points.length < 2) return points || [];
+  const first = points[0];
+  const last = points[points.length - 1];
+  const gap = haversineDistance(first.lat, first.lng, last.lat, last.lng);
+  if (gap > 2) {
+    points.push({ ...first });
+  }
+  return points;
+}
+
+function buildPathSegments(points) {
+  if (!points || points.length < 2) return null;
+  const originLat = points[0].lat;
+  const originLon = points[0].lng;
+  const segments = [];
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const start = points[i];
+    const end = points[i + 1];
+    const startXY = latLonToXY(start.lat, start.lng, originLat, originLon);
+    const endXY = latLonToXY(end.lat, end.lng, originLat, originLon);
+    const dx = endXY.x - startXY.x;
+    const dy = endXY.y - startXY.y;
+    const length = Math.hypot(dx, dy);
+    if (length < 0.1) continue;
+    segments.push({ start, end, startXY, endXY, length });
+  }
+
+  const totalLength = segments.reduce((sum, seg) => sum + seg.length, 0);
+  if (!segments.length || totalLength <= 0) {
+    return null;
+  }
+
+  const segmentSpeedFactors = computeSegmentSpeedFactors(segments);
+  return { segments, segmentSpeedFactors, totalLength, originLat, originLon };
+}
+
+function computeSegmentSpeedFactors(segments) {
+  const len = segments.length;
+  if (!len) return [];
+  return segments.map((segment, index) => {
+    const prev = segments[(index - 1 + len) % len];
+    const next = segments[(index + 1) % len];
+    const currHeading = segmentHeading(segment);
+    const nextHeading = segmentHeading(next);
+    const angleDiff = Math.abs(normalizeAngle(nextHeading - currHeading));
+    const turnRatio = Math.min(angleDiff / (Math.PI), 1); // 0 straight, 1 hairpin
+    const base = 1.25 - 0.75 * turnRatio; // 1.25 straight → 0.5 tight turn
+    const lengthBonus = Math.min(segment.length / 60, 0.25);
+    return clamp(base + lengthBonus, 0.35, 1.35);
+  });
+}
+
+function segmentHeading(segment) {
+  if (!segment) return 0;
+  return Math.atan2(segment.endXY.y - segment.startXY.y, segment.endXY.x - segment.startXY.x);
+}
+
+function normalizeAngle(angle) {
+  let a = angle;
+  while (a > Math.PI) a -= 2 * Math.PI;
+  while (a < -Math.PI) a += 2 * Math.PI;
+  return a;
+}
+
+function projectPointOntoSegments(point, path) {
+  if (!path?.segments?.length) return null;
+  const target = latLonToXY(point.lat, point.lng, path.originLat, path.originLon);
+  let best = null;
+
+  path.segments.forEach((segment, index) => {
+    const vx = segment.endXY.x - segment.startXY.x;
+    const vy = segment.endXY.y - segment.startXY.y;
+    const segLenSq = vx * vx + vy * vy;
+    let t = segLenSq === 0 ? 0 : ((target.x - segment.startXY.x) * vx + (target.y - segment.startXY.y) * vy) / segLenSq;
+    t = Math.max(0, Math.min(1, t));
+
+    const projX = segment.startXY.x + vx * t;
+    const projY = segment.startXY.y + vy * t;
+    const distSq = (target.x - projX) ** 2 + (target.y - projY) ** 2;
+
+    if (!best || distSq < best.distSq) {
+      best = {
+        segmentIndex: index,
+        distanceIntoSegment: t * segment.length,
+        distSq,
+        position: {
+          lat: segment.start.lat + (segment.end.lat - segment.start.lat) * t,
+          lng: segment.start.lng + (segment.end.lng - segment.start.lng) * t
+        }
+      };
+    }
+  });
+
+  if (!best) return null;
+  return {
+    segmentIndex: best.segmentIndex,
+    distanceIntoSegment: best.distanceIntoSegment,
+    position: best.position
+  };
+}
+
+function advanceSimulationAlongTrack() {
+  if (!simulationState.pathSegments.length) {
+    const fallback = getExistingStartFinishPoint() || { lat: simulationState.baseLat, lng: simulationState.baseLon };
+    simulationState.currentSpeedMps = simulationState.speedMps;
+    return fallback;
+  }
+
+  let remainingSeconds = simulationState.intervalMs / 1000;
+  const totalSegments = simulationState.pathSegments.length;
+
+  while (remainingSeconds > 0) {
+    const current = simulationState.pathSegments[simulationState.segmentIndex];
+    if (!current || current.length <= 0) {
+      stepToNextSimulationSegment(totalSegments);
+      continue;
+    }
+
+    const segFactor = simulationState.segmentSpeedFactors?.[simulationState.segmentIndex] ?? 1;
+    const jitter = 1 + (Math.random() - 0.5) * 0.08;
+    const speedMps = Math.max(simulationState.speedMps * simulationState.lapSpeedFactor * segFactor * jitter, 0.5);
+    simulationState.currentSpeedMps = speedMps;
+
+    const segRemaining = Math.max(current.length - simulationState.distanceIntoSegment, 0);
+    const timeToFinishSeg = segRemaining / speedMps;
+
+    if (timeToFinishSeg >= remainingSeconds || segRemaining === 0) {
+      const distanceAdvance = speedMps * remainingSeconds;
+      simulationState.distanceIntoSegment = Math.min(current.length, simulationState.distanceIntoSegment + distanceAdvance);
+      remainingSeconds = 0;
+    } else {
+      simulationState.segmentIndex = (simulationState.segmentIndex + 1) % totalSegments;
+      simulationState.distanceIntoSegment = 0;
+      remainingSeconds -= timeToFinishSeg;
+      if (simulationState.segmentIndex === 0) {
+        simulationState.loopCounter += 1;
+        simulationState.lapSpeedFactor = randomLapSpeedFactor();
+      }
+    }
+  }
+
+  const activeSegment = simulationState.pathSegments[simulationState.segmentIndex];
+  const ratio = activeSegment.length ? simulationState.distanceIntoSegment / activeSegment.length : 0;
+  return interpolateLatLon(activeSegment.start, activeSegment.end, ratio);
+}
+
+function stepToNextSimulationSegment(totalSegments) {
+  simulationState.segmentIndex = (simulationState.segmentIndex + 1) % Math.max(totalSegments, 1);
+  simulationState.distanceIntoSegment = 0;
+  if (simulationState.segmentIndex === 0) {
+    simulationState.loopCounter += 1;
+    simulationState.lapSpeedFactor = randomLapSpeedFactor();
+  }
+}
+
+function buildSimulationTelemetry(point) {
+  const sequence = simulationState.sequence++;
+  const jitteredPoint = addGpsNoise(point, simulationState.gpsNoiseMeters);
+  const speedMps = simulationState.currentSpeedMps;
+  return {
+    timestamp: new Date().toISOString(),
+    latitude: jitteredPoint.lat,
+    longitude: jitteredPoint.lng,
+    altitude: 10 + Math.random() * 2,
+    fix: 3,
+    satellites: 9 + Math.floor(Math.random() * 4),
+    hdop: 0.6 + Math.random() * 0.3,
+    speedMps,
+    speedMph: speedMps / MPH_TO_MPS,
+    source: 'simulator',
+    sequence,
+    raw: { sim: true, speedMph: speedMps / MPH_TO_MPS }
+  };
+}
+
+function interpolateLatLon(start, end, ratio) {
+  const t = Math.max(0, Math.min(1, ratio));
+  return {
+    lat: start.lat + (end.lat - start.lat) * t,
+    lng: start.lng + (end.lng - start.lng) * t
+  };
+}
+
+function latLonToXY(lat, lon, originLat, originLon) {
+  const x = (lon - originLon) * Math.cos((originLat * Math.PI) / 180) * 111320;
+  const y = (lat - originLat) * 111320;
+  return { x, y };
+}
+
+function offsetLatLon(lat, lon, northMeters, eastMeters) {
+  const dLat = northMeters / 111320;
+  const dLon = eastMeters / (111320 * Math.cos((lat * Math.PI) / 180));
+  return {
+    lat: lat + dLat,
+    lng: lon + (isFinite(dLon) ? dLon : 0)
+  };
+}
+
+function addGpsNoise(point, meters = 0.5) {
+  const north = randomGaussian() * (meters / 2);
+  const east = randomGaussian() * (meters / 2);
+  return offsetLatLon(point.lat, point.lng, north, east);
+}
+
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371e3;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function buildCircularTrackPoints(start, radiusMeters = 70, steps = 72) {
+  const center = offsetLatLon(start.lat, start.lng, 0, -radiusMeters);
+  const points = [];
+  for (let i = 0; i <= steps; i++) {
+    const angle = (i / steps) * Math.PI * 2;
+    const north = radiusMeters * Math.sin(angle);
+    const east = radiusMeters * Math.cos(angle);
+    points.push(offsetLatLon(center.lat, center.lng, north, east));
+  }
+  return points;
+}
+
+function randomLapSpeedFactor() {
+  return 0.9 + Math.random() * 0.2; // 0.9x – 1.1x per lap
+}
+
+function randomGaussian() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
 /**
  * Handle incoming telemetry data
  * @param {Object} telemetry - Telemetry data object
  */
 function handleTelemetryData(telemetry) {
   currentTelemetry = telemetry;
+  const speedMps = estimateSpeedMps(telemetry);
+  updateSpeedometer(speedMps);
 
   // Update map with new position
   trackMap.updateCarPosition(telemetry.latitude, telemetry.longitude);
@@ -679,16 +1221,38 @@ function handleCurrentTimeUpdate(currentTime, delta) {
   }
 }
 
+function toggleLapSortMode() {
+  lapSortState.mode = lapSortState.mode === 'lapNumber' ? 'bestTime' : 'lapNumber';
+  updateLapSortButton();
+  updateLapTimesTable();
+}
+
+function updateLapSortButton() {
+  const btn = document.getElementById('lapSortToggleBtn');
+  if (!btn) return;
+  btn.textContent = lapSortState.mode === 'lapNumber' ? 'Sort: Lap #' : 'Sort: Fastest';
+}
+
 /**
  * Update the lap times table
  */
 function updateLapTimesTable() {
   const tbody = document.getElementById('lapTimesBody');
-  const laps = lapManager.getLaps();
+  const laps = lapManager.getLaps().slice();
 
   if (laps.length === 0) {
     tbody.innerHTML = '<tr class="empty-state"><td colspan="3">No laps recorded yet</td></tr>';
     return;
+  }
+
+  if (lapSortState.mode === 'bestTime') {
+    laps.sort((a, b) => {
+      if (a.finalTime === null) return 1;
+      if (b.finalTime === null) return -1;
+      return a.finalTime - b.finalTime;
+    });
+  } else {
+    laps.sort((a, b) => a.lapNumber - b.lapNumber);
   }
 
   const bestLap = lapManager.getBestLap();
@@ -726,6 +1290,107 @@ function updateLapTimesTable() {
 
     tbody.appendChild(tr);
   });
+}
+
+async function sendLoRaCommandFromInput() {
+  const input = document.getElementById('commandInput');
+  if (!input) return;
+  const command = input.value.trim();
+  if (!command) return;
+
+  const entry = createCommandLogEntry(command);
+  appendCommandLogEntry(entry, { skipRender: true });
+  renderCommandLog();
+
+  if (!isConnected) {
+    entry.status = 'error';
+    entry.detail = 'Connect to the LoRa receiver first';
+    renderCommandLog();
+    return;
+  }
+
+  try {
+    if (!window.electronAPI?.sendLoRaCommand) {
+      throw new Error('Command bridge unavailable');
+    }
+    await window.electronAPI.sendLoRaCommand({ command });
+    entry.status = 'success';
+    entry.detail = 'Sent';
+    input.value = '';
+  } catch (error) {
+    entry.status = 'error';
+    entry.detail = error?.message || 'Failed to send';
+  }
+
+  renderCommandLog();
+}
+
+function createCommandLogEntry(text) {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    timestamp: new Date(),
+    text,
+    status: 'pending',
+    detail: ''
+  };
+}
+
+function appendCommandLogEntry(entry, { skipRender = false } = {}) {
+  commandLogState.entries.push(entry);
+  if (commandLogState.entries.length > 50) {
+    commandLogState.entries.shift();
+  }
+  if (!skipRender) {
+    renderCommandLog();
+  }
+}
+
+function clearCommandLog() {
+  commandLogState.entries = [];
+  renderCommandLog();
+}
+
+function renderCommandLog() {
+  const container = document.getElementById('commandLog');
+  if (!container) return;
+
+  if (!commandLogState.entries.length) {
+    container.innerHTML = '<div class="empty-state">No commands sent yet</div>';
+    return;
+  }
+
+  container.innerHTML = '';
+  commandLogState.entries.forEach((entry) => {
+    const row = document.createElement('div');
+    row.className = `log-entry ${entry.status}`;
+
+    const text = document.createElement('div');
+    text.className = 'log-text';
+    text.textContent = `[${formatCommandTimestamp(entry.timestamp)}] > ${entry.text}`;
+
+    const status = document.createElement('div');
+    status.className = 'log-status';
+    status.textContent = entry.status === 'success'
+      ? 'SENT'
+      : entry.status === 'error'
+        ? 'ERROR'
+        : 'SENDING';
+    if (entry.detail) {
+      status.title = entry.detail;
+    }
+
+    row.appendChild(text);
+    row.appendChild(status);
+    container.appendChild(row);
+  });
+  container.scrollTop = container.scrollHeight;
+}
+
+function formatCommandTimestamp(date) {
+  if (!(date instanceof Date)) {
+    return new Date(date || Date.now()).toLocaleTimeString();
+  }
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 /**
@@ -1047,15 +1712,17 @@ function updateTestTransmitButton() {
   const label = testTransmitState.running ? 'Stop Test TX' : 'Start Test TX';
   testBtn.textContent = label;
   testBtn.classList.toggle('active', testTransmitState.running);
-  testBtn.disabled = !isConnected || testTransmitState.busy;
+  testBtn.disabled = !isConnected || testTransmitState.busy || simulationState.running;
   testBtn.title = testTransmitState.running
     ? 'Transmitting continuous test packets at 915 MHz. Click to stop.'
     : 'Send repeating 915 MHz test packets once connected.';
 }
 
 async function toggleTestTransmitMode() {
-  if (!isConnected) {
-    alert('Connect to a LoRa port before sending test packets.');
+  if (!isConnected || simulationState.running) {
+    alert(simulationState.running
+      ? 'Stop the simulation before sending hardware test packets.'
+      : 'Connect to a LoRa port before sending test packets.');
     return;
   }
 
