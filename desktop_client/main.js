@@ -12,12 +12,60 @@ const fs = require('fs');
 const { EndurancePoller } = require('./poll_endurance');
 const { LeaderboardPoller } = require('./poll_leaderboard');
 const { PenaltiesPoller } = require('./poll_penalties');
+const {
+  readRaceTimerState,
+  writeRaceTimerState,
+  adjustRaceTimerState,
+  getRaceTimerFilePath
+} = require('./race_timer_store');
 
 let mainWindow;
 let loraReceiver;
 let endurancePoller;
 let leaderboardPoller;
 let penaltiesPoller;
+let raceTimerBaseDir = null;
+let raceTimerWatcherPath = null;
+let raceTimerWatcherActive = false;
+
+function getRaceTimerBaseDir() {
+  if (!raceTimerBaseDir) {
+    raceTimerBaseDir = app.getPath('userData');
+  }
+  return raceTimerBaseDir;
+}
+
+function broadcastRaceTimerState(state) {
+  const payload = state || readRaceTimerState({ baseDir: getRaceTimerBaseDir() });
+  if (mainWindow) {
+    mainWindow.webContents.send('race-timer-data', payload);
+  }
+  return payload;
+}
+
+function initRaceTimerWatcher() {
+  if (raceTimerWatcherActive) {
+    return;
+  }
+
+  const baseDir = getRaceTimerBaseDir();
+  const filePath = getRaceTimerFilePath({ baseDir });
+  // Ensure the state file exists before watching it
+  writeRaceTimerState({}, { baseDir });
+  raceTimerWatcherPath = filePath;
+  fs.watchFile(filePath, { interval: 1000 }, () => {
+    broadcastRaceTimerState();
+  });
+  raceTimerWatcherActive = true;
+}
+
+function disposeRaceTimerWatcher() {
+  if (raceTimerWatcherPath) {
+    fs.unwatchFile(raceTimerWatcherPath);
+    raceTimerWatcherPath = null;
+  }
+  raceTimerWatcherActive = false;
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -66,6 +114,7 @@ function createWindow() {
     if (loraReceiver) {
       mainWindow.webContents.send('test-transmit-status', loraReceiver.getTestTransmitStatus());
     }
+    broadcastRaceTimerState();
   });
 }
 
@@ -194,6 +243,8 @@ function initPenaltiesPoller() {
 
 // App lifecycle events
 app.whenReady().then(() => {
+  raceTimerBaseDir = app.getPath('userData');
+  initRaceTimerWatcher();
   createWindow();
   initLoRaReceiver();
   initEndurancePoller();
@@ -226,6 +277,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  disposeRaceTimerWatcher();
 });
 
 /**
@@ -318,6 +373,26 @@ ipcMain.handle('load-config', async () => {
     console.error('Failed to load config:', err);
     return null;
   }
+});
+
+ipcMain.handle('race-timer-get', async () => {
+  return readRaceTimerState({ baseDir: getRaceTimerBaseDir() });
+});
+
+ipcMain.handle('race-timer-save', async (event, payload = {}) => {
+  const next = writeRaceTimerState(payload || {}, { baseDir: getRaceTimerBaseDir() });
+  broadcastRaceTimerState(next);
+  return next;
+});
+
+ipcMain.handle('race-timer-adjust', async (event, deltaMs) => {
+  const numericDelta = Number(deltaMs);
+  if (!Number.isFinite(numericDelta) || numericDelta === 0) {
+    throw new Error('Adjustment value must be a non-zero number of milliseconds');
+  }
+  const next = adjustRaceTimerState(numericDelta, { baseDir: getRaceTimerBaseDir() });
+  broadcastRaceTimerState(next);
+  return next;
 });
 
 // Endurance polling controls

@@ -199,6 +199,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   /**
+   * Race timer controls
+   */
+  getRaceTimerState: () => ipcRenderer.invoke('race-timer-get'),
+  saveRaceTimerState: (state) => ipcRenderer.invoke('race-timer-save', state),
+  adjustRaceTimer: (deltaMs) => ipcRenderer.invoke('race-timer-adjust', deltaMs),
+  onRaceTimerUpdate: (callback) => {
+    const channel = 'race-timer-data';
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+
+  /**
    * Send arbitrary command text over the LoRa serial link
    * @param {string|Object} payload
    */

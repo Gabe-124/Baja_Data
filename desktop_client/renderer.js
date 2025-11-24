@@ -46,6 +46,14 @@ const MPH_TO_MPS = 0.44704;
 const SPEEDOMETER_MAX_MPH = 40;
 const SPEEDOMETER_MIN_ANGLE = -130;
 const SPEEDOMETER_MAX_ANGLE = 130;
+const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+
+const raceTimerState = {
+  durationMs: FOUR_HOURS_MS,
+  startTimeMs: null,
+  adjustmentMs: 0,
+  intervalId: null
+};
 
 const simulationState = {
   running: false,
@@ -231,6 +239,9 @@ async function init() {
 
   // Set up UI event listeners
   setupEventListeners();
+
+  // Initialize race timer UI/state
+  await initializeRaceTimer();
 
   // Populate serial port list
   await refreshSerialPorts();
@@ -494,6 +505,12 @@ function setupEventListeners() {
   if (toggleRaceTrackingBtn) {
     toggleRaceTrackingBtn.addEventListener('click', toggleRaceTracking);
     updateRaceTrackingButton();
+  }
+
+  const startRaceTimerBtn = document.getElementById('startRaceTimerBtn');
+  if (startRaceTimerBtn) {
+    startRaceTimerBtn.addEventListener('click', handleRaceStartRequest);
+    updateRaceStartButton();
   }
 
   const refreshEnduranceBtn = document.getElementById('refreshEnduranceBtn');
@@ -1445,6 +1462,141 @@ function updateBestLapDisplay() {
     document.getElementById('bestLapTime').textContent = '--';
     document.getElementById('bestLapNum').textContent = '--';
   }
+}
+
+async function initializeRaceTimer() {
+  updateRaceCountdownUI();
+
+  if (!window?.electronAPI?.getRaceTimerState) {
+    return;
+  }
+
+  try {
+    const state = await window.electronAPI.getRaceTimerState();
+    applyRaceTimerState(state);
+  } catch (error) {
+    console.error('Failed to load race timer state:', error);
+    applyRaceTimerState(null);
+  }
+
+  if (window?.electronAPI?.onRaceTimerUpdate) {
+    window.electronAPI.onRaceTimerUpdate((state) => {
+      applyRaceTimerState(state);
+    });
+  }
+}
+
+function applyRaceTimerState(state) {
+  if (raceTimerState.intervalId) {
+    clearInterval(raceTimerState.intervalId);
+    raceTimerState.intervalId = null;
+  }
+
+  raceTimerState.durationMs = state?.durationMs || FOUR_HOURS_MS;
+  raceTimerState.startTimeMs = state?.startTimeMs || null;
+  raceTimerState.adjustmentMs = Number.isFinite(state?.adjustmentMs) ? state.adjustmentMs : 0;
+
+  if (raceTimerState.startTimeMs) {
+    raceTimerState.intervalId = setInterval(() => {
+      updateRaceCountdownUI();
+    }, 1000);
+  }
+
+  updateRaceCountdownUI();
+  updateRaceStartButton();
+}
+
+async function handleRaceStartRequest() {
+  const remaining = getRaceTimerRemainingMs();
+  if (raceTimerState.startTimeMs && remaining > 0) {
+    const confirmRestart = confirm('Race clock is already running. Do you want to restart the 4-hour countdown?');
+    if (!confirmRestart) {
+      return;
+    }
+  }
+
+  const payload = {
+    startTimeMs: Date.now(),
+    adjustmentMs: 0,
+    durationMs: FOUR_HOURS_MS
+  };
+
+  if (!window?.electronAPI?.saveRaceTimerState) {
+    applyRaceTimerState(payload);
+    return;
+  }
+
+  try {
+    const saved = await window.electronAPI.saveRaceTimerState(payload);
+    applyRaceTimerState(saved || payload);
+  } catch (error) {
+    console.error('Failed to start race timer:', error);
+    alert(`Failed to start race timer: ${error?.message || error}`);
+  }
+}
+
+function getRaceTimerRemainingMs() {
+  if (!raceTimerState.startTimeMs) {
+    return raceTimerState.durationMs;
+  }
+  const elapsed = Date.now() - raceTimerState.startTimeMs;
+  const adjusted = raceTimerState.durationMs - elapsed + (raceTimerState.adjustmentMs || 0);
+  return Math.max(0, Math.floor(adjusted));
+}
+
+function updateRaceCountdownUI() {
+  const valueEl = document.getElementById('raceCountdownValue');
+  const statusEl = document.getElementById('raceTimerStatusText');
+  if (!valueEl || !statusEl) {
+    return;
+  }
+
+  const remaining = raceTimerState.startTimeMs ? getRaceTimerRemainingMs() : raceTimerState.durationMs;
+  valueEl.textContent = formatRaceDuration(remaining);
+
+  if (!raceTimerState.startTimeMs) {
+    statusEl.textContent = 'Waiting to start';
+  } else if (remaining > 0) {
+    const adjustmentLabel = raceTimerState.adjustmentMs
+      ? ` • Adj ${formatTimerAdjustment(raceTimerState.adjustmentMs)}`
+      : '';
+    statusEl.textContent = `Running${adjustmentLabel}`;
+  } else {
+    statusEl.textContent = 'Race complete';
+    if (raceTimerState.intervalId) {
+      clearInterval(raceTimerState.intervalId);
+      raceTimerState.intervalId = null;
+    }
+  }
+}
+
+function updateRaceStartButton() {
+  const btn = document.getElementById('startRaceTimerBtn');
+  if (!btn) return;
+  const running = !!raceTimerState.startTimeMs && getRaceTimerRemainingMs() > 0;
+  btn.textContent = running ? 'Restart 4h Race Clock' : 'Start 4h Race';
+  btn.title = running
+    ? 'Restart the race clock from 4 hours'
+    : 'Begin the 4-hour endurance countdown';
+}
+
+function formatRaceDuration(ms) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((v) => String(v).padStart(2, '0')).join(':');
+}
+
+function formatTimerAdjustment(ms) {
+  const sign = ms >= 0 ? '+' : '-';
+  const abs = Math.abs(ms);
+  const minutes = Math.floor(abs / 60000);
+  const seconds = Math.floor((abs % 60000) / 1000);
+  const parts = [];
+  if (minutes) parts.push(`${minutes}m`);
+  if (seconds || parts.length === 0) parts.push(`${seconds}s`);
+  return `${sign}${parts.join(' ')}`;
 }
 
 async function refreshEnduranceData(buttonEl) {

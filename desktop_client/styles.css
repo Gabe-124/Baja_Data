@@ -786,6 +786,45 @@ body {
   color: var(--accent-danger);
 }
 
+.race-clock-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.race-clock-display {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.race-clock-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-secondary);
+}
+
+.race-clock-time {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  color: var(--accent-primary);
+}
+
+.race-clock-status {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.race-clock-start-btn {
+  white-space: nowrap;
+}
+
 .tracked-car-card {
   margin: 0 var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-md);

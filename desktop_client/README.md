@@ -15,7 +15,8 @@ Cross-platform desktop application for real-time Baja SAE telemetry monitoring v
 ## Hardware Requirements
 
 - Waveshare USB LoRa module (SX1262 based)
-- Raspberry Pi with LoRa HAT and GPS sensor (transmitter side)
+- Seeed Studio Xaio esp32s3 lora module 
+- Seeed Studio GNSS module for Xaio 
 - Mac or Windows computer
 
 ## Installation
@@ -72,11 +73,14 @@ Want to poke around the dashboard without a Raspberry Pi or LoRa radio nearby? U
 ### During a Session
 
 - **Map Controls**
-  - 📍 Center button - Re-center map on car
-  - 🔄 Reset button - Clear the track path
-  - Double-click map - Set start/finish line location
-  - Drag map - Disables auto-centering (click 📍 to re-enable)
-  - Light/Dark toggle - Switch themes for indoor vs. bright-sun viewing
+  - 📍 Track Center button - Fits the full drawn/recorded track and pauses auto-follow
+  - 🏎️ Car Follow button - Snaps back to the car and re-enables auto-centering
+  - 🛰️ / 🗺️ toggle - Switch between satellite imagery and the default street layer
+  - 🛠️ Draw/Edit button - Opens the toolbar to sketch or tweak the reference track
+  - 💾 Save + 📁 Import - Export the current track to GeoJSON or load an existing layout (GPX/GeoJSON)
+  - Double-click map - Set start/finish line location (10 m radius)
+  - Drag map - Temporarily disables auto-centering; tap 🏎️ or 📍 to resume
+  - Light/Dark toggle - Switch UI themes for indoor vs. bright-sun viewing
 
 - **Lap Timing**
   - Current lap time updates in real-time
@@ -88,6 +92,33 @@ Want to poke around the dashboard without a Raspberry Pi or LoRa radio nearby? U
   - Fix quality indicator (No Fix / GPS Fix / DGPS / RTK)
   - Satellite count
   - HDOP (accuracy metric)
+
+### Race Clock (4-hour endurance)
+
+- The Race Results header now includes a **Race Clock** tile and a **Start 4h Race** button.
+- Tapping the button stores the official race start time and begins counting down from four hours (04:00:00).
+- If you restart the clock mid-race, you will be asked to confirm so you do not accidentally wipe the running clock.
+- The status line under the timer shows whether the clock is waiting to start, actively running, or complete. If any offsets have been applied, an "Adj" badge is also displayed.
+
+#### Adjusting the race clock from the terminal
+
+If the green flag drops before you hit the start button, run the helper script to nudge the countdown forward or backward without touching the UI:
+
+```bash
+npm run adjust-race-timer -- --minutes -2      # subtract 2 minutes
+npm run adjust-race-timer -- --seconds 30      # add 30 seconds
+npm run adjust-race-timer -- --minutes 1 --status  # add 1 minute, then print the new clock
+```
+
+Accepted flags:
+
+- `--minutes` / `-m`
+- `--seconds` / `-s`
+- `--hours` / `-H`
+- `--milliseconds` / `--ms`
+- `--status` prints the live clock after applying the adjustment
+
+All adjustments are stored in the same Electron `userData` directory that the app already uses, so the UI, CLI, and multiple machines stay in sync automatically.
 
 ### Configuration
 

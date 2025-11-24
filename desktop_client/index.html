@@ -173,6 +173,14 @@
             <span id="leaderboardStatusText" class="status-chip">Leaderboard stopped</span>
             <span id="enduranceAsOf" class="timestamp-chip">--</span>
             <span id="leaderboardAsOf" class="timestamp-chip">--</span>
+            <div class="race-clock-controls">
+              <div class="race-clock-display">
+                <div class="race-clock-label">Race Clock</div>
+                <div class="race-clock-time" id="raceCountdownValue">04:00:00</div>
+                <div class="race-clock-status" id="raceTimerStatusText">Waiting to start</div>
+              </div>
+              <button id="startRaceTimerBtn" class="btn btn-primary btn-compact race-clock-start-btn">Start 4h Race</button>
+            </div>
             <select id="trackedCarSelect" class="tracked-car-select">
               <option value="">Track car...</option>
             </select>

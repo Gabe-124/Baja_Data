@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "build:mac": "electron-builder --mac",
-    "build:win": "electron-builder --win"
+    "build:win": "electron-builder --win",
+    "adjust-race-timer": "node race_timer_cli.js"
   },
   "keywords": ["baja", "telemetry", "lora", "gps", "lap-timing"],
   "author": "Baja Team",
