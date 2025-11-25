@@ -42,6 +42,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadConfig: () => ipcRenderer.invoke('load-config'),
 
   /**
+   * Subscribe to config updates broadcast from the main process
+   * @param {Function} callback
+   * @returns {Function} unsubscribe
+   */
+  onConfigUpdated: (callback) => {
+    const channel = 'config-updated';
+    const handler = (event, payload) => callback(payload);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+
+  /**
    * Prompt the user to save a track GeoJSON file
    * @param {Object} payload - { geojson: Feature, suggestedName?: string, defaultPath?: string }
    * @returns {Promise<{canceled: boolean, filePath?: string}>}

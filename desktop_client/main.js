@@ -5,7 +5,7 @@
  * and IPC (inter-process communication) between the Node.js backend and the UI renderer.
  */
 
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const LoRaReceiver = require('./lora_receiver');
 const fs = require('fs');
@@ -27,6 +27,7 @@ let penaltiesPoller;
 let raceTimerBaseDir = null;
 let raceTimerWatcherPath = null;
 let raceTimerWatcherActive = false;
+let preferencesWindow = null;
 
 function getRaceTimerBaseDir() {
   if (!raceTimerBaseDir) {
@@ -115,6 +116,127 @@ function createWindow() {
       mainWindow.webContents.send('test-transmit-status', loraReceiver.getTestTransmitStatus());
     }
     broadcastRaceTimerState();
+  });
+}
+
+function createPreferencesWindow() {
+  if (preferencesWindow) {
+    return preferencesWindow;
+  }
+
+  preferencesWindow = new BrowserWindow({
+    width: 520,
+    height: 420,
+    resizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    title: 'Preferences',
+    parent: mainWindow || undefined,
+    modal: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  preferencesWindow.loadFile('preferences.html');
+
+  preferencesWindow.on('closed', () => {
+    preferencesWindow = null;
+  });
+
+  return preferencesWindow;
+}
+
+function showPreferencesWindow() {
+  const prefWindow = createPreferencesWindow();
+  prefWindow.show();
+  prefWindow.focus();
+}
+
+function buildAppMenu() {
+  const isMac = process.platform === 'darwin';
+
+  const template = [
+    ...(isMac
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              {
+                label: 'Preferences…',
+                accelerator: 'CmdOrCtrl+,',
+                click: showPreferencesWindow
+              },
+              { type: 'separator' },
+              { role: 'about' },
+              { type: 'separator' },
+              { role: 'hide' },
+              { role: 'hideothers' },
+              { role: 'unhide' },
+              { type: 'separator' },
+              { role: 'quit' }
+            ]
+          }
+        ]
+      : [
+          {
+            label: 'File',
+            submenu: [
+              {
+                label: 'Preferences…',
+                accelerator: 'CmdOrCtrl+,',
+                click: showPreferencesWindow
+              },
+              { type: 'separator' },
+              { role: 'quit' }
+            ]
+          }
+        ]),
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forcereload' },
+        { role: 'toggledevtools' },
+        { type: 'separator' },
+        { role: 'resetzoom' },
+        { role: 'zoomin' },
+        { role: 'zoomout' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: isMac
+        ? [{ role: 'close' }, { role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }]
+        : [{ role: 'minimize' }, { role: 'zoom' }, { role: 'close' }]
+    },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'Repository',
+          click: async () => {
+            const { shell } = require('electron');
+            await shell.openExternal('https://github.com/Gabe-124/Baja_Data');
+          }
+        }
+      ]
+    }
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
+function broadcastConfigUpdate(config) {
+  if (!config) return;
+  BrowserWindow.getAllWindows().forEach((win) => {
+    win.webContents.send('config-updated', config);
   });
 }
 
@@ -246,6 +368,7 @@ app.whenReady().then(() => {
   raceTimerBaseDir = app.getPath('userData');
   initRaceTimerWatcher();
   createWindow();
+  buildAppMenu();
   initLoRaReceiver();
   initEndurancePoller();
   initLeaderboardPoller();
@@ -317,6 +440,7 @@ ipcMain.handle('save-config', async (event, config) => {
 
     const merged = Object.assign({}, existing, config);
     fs.writeFileSync(cfgPath, JSON.stringify(merged, null, 2), 'utf8');
+    broadcastConfigUpdate(merged);
     return true;
   } catch (err) {
     console.error('Failed to save config:', err);

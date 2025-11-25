@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Baja Telemetry Preferences</title>
+  <link rel="stylesheet" href="preferences.css">
+</head>
+<body>
+  <main class="preferences">
+    <header>
+      <div>
+        <p class="eyebrow">Baja Telemetry</p>
+        <h1>Preferences</h1>
+      </div>
+      <div class="shortcuts">
+        <span class="shortcut-label">Shortcut</span>
+        <span class="shortcut-value">Cmd/Ctrl + ,</span>
+      </div>
+    </header>
+
+    <section class="prefs-section">
+      <h2>Appearance</h2>
+      <div class="field-row">
+        <div>
+          <label for="themeSelect">Theme</label>
+          <p class="hint">Choose the UI theme used across all telemetry windows.</p>
+        </div>
+        <select id="themeSelect">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </div>
+      <p class="status" id="themeStatus" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <script src="preferences.js"></script>
+</body>
+</html>

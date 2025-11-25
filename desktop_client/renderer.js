@@ -336,15 +336,6 @@ function setupEventListeners() {
   document.getElementById('connectBtn').addEventListener('click', connectToSerial);
   document.getElementById('disconnectBtn').addEventListener('click', disconnectFromSerial);
 
-  const themeToggleBtn = document.getElementById('themeToggleBtn');
-  if (themeToggleBtn) {
-    themeToggleBtn.addEventListener('click', () => {
-      const nextTheme = themeState.mode === 'light' ? 'dark' : 'light';
-      applyTheme(nextTheme);
-      persistThemePreference(nextTheme);
-    });
-  }
-
   const testBtn = document.getElementById('testTxBtn');
   if (testBtn) {
     testBtn.addEventListener('click', toggleTestTransmitMode);
@@ -2371,27 +2362,24 @@ function applyTheme(mode) {
   if (document.body) {
     document.body.setAttribute('data-theme', normalized);
   }
-
-  const toggle = document.getElementById('themeToggleBtn');
-  if (toggle) {
-    const label = normalized === 'light' ? 'Switch to dark mode' : 'Switch to light mode';
-    toggle.textContent = normalized === 'light' ? 'Dark Mode' : 'Light Mode';
-    toggle.setAttribute('aria-label', label);
-    toggle.title = label;
-  }
 }
 
-function persistThemePreference(mode) {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, mode);
-  } catch (error) {
-    console.warn('Unable to cache theme preference:', error);
+if (window?.electronAPI?.onConfigUpdated) {
+  window.electronAPI.onConfigUpdated(handleConfigUpdated);
+}
+
+function handleConfigUpdated(config) {
+  if (!config || typeof config !== 'object') {
+    return;
   }
 
-  if (window?.electronAPI?.saveConfig) {
-    window.electronAPI.saveConfig({ uiTheme: mode }).catch((error) => {
-      console.warn('Failed to persist theme preference:', error);
-    });
+  if (config.uiTheme && config.uiTheme !== themeState.mode) {
+    applyTheme(config.uiTheme);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, config.uiTheme);
+    } catch (error) {
+      console.warn('Unable to cache theme preference:', error);
+    }
   }
 }
 

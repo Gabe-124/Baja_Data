@@ -183,10 +183,6 @@ body {
   background: var(--bg-tertiary);
 }
 
-.theme-toggle {
-  min-width: 120px;
-}
-
 /* Port selector */
 .port-select {
   padding: var(--spacing-sm) var(--spacing-md);

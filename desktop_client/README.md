@@ -1,3 +1,11 @@
+# To-do 
+- have the lap times sync based on imported data from results page
+- Create box for client Xaio
+- Create onboard housing for Xaio, GPS, LoRa, and Battery
+- Add gps track creation
+- Add a config page 
+
+
 # Baja Telemetry Client
 
 Cross-platform desktop application for real-time Baja SAE telemetry monitoring via LoRa radio. Displays GPS position, lap timing, and performance analytics.
@@ -80,7 +88,7 @@ Want to poke around the dashboard without a Raspberry Pi or LoRa radio nearby? U
   - 💾 Save + 📁 Import - Export the current track to GeoJSON or load an existing layout (GPX/GeoJSON)
   - Double-click map - Set start/finish line location (10 m radius)
   - Drag map - Temporarily disables auto-centering; tap 🏎️ or 📍 to resume
-  - Light/Dark toggle - Switch UI themes for indoor vs. bright-sun viewing
+  - Preferences… (Cmd/Ctrl + ,) - Launch the settings window for theme selection (and future global options)
 
 - **Lap Timing**
   - Current lap time updates in real-time
@@ -127,6 +135,8 @@ Settings are automatically saved, including:
 - Serial port selection
 - Map view preferences
 - Theme preference (light or dark)
+
+Use **Baja Telemetry ▸ Preferences…** on macOS (or **File ▸ Preferences…** on Windows/Linux) — or press **Cmd/Ctrl + ,** — to open the dedicated configuration window. The theme toggle now lives there, and additional configuration panels will appear in upcoming updates.
 
 Configuration file location:
 - macOS: `~/Library/Application Support/baja-telemetry-client/`
