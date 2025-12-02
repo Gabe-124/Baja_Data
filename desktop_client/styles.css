@@ -183,6 +183,11 @@ body {
   background: var(--bg-tertiary);
 }
 
+.btn-icon.active {
+  background: var(--bg-tertiary);
+  color: var(--accent-primary);
+}
+
 /* Port selector */
 .port-select {
   padding: var(--spacing-sm) var(--spacing-md);

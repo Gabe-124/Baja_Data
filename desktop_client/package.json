@@ -27,6 +27,7 @@
     "productName": "Baja Telemetry",
     "mac": {
       "category": "public.app-category.utilities",
+      "icon": "App_Icon.icns",
       "target": ["dmg"]
     },
     "win": {

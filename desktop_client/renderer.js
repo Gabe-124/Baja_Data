@@ -47,6 +47,9 @@ const SPEEDOMETER_MAX_MPH = 40;
 const SPEEDOMETER_MIN_ANGLE = -130;
 const SPEEDOMETER_MAX_ANGLE = 130;
 const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+const TRACK_WALK_SAMPLE_DISTANCE_METERS = 1.5;
+const TRACK_WALK_SAMPLE_INTERVAL_MS = 900;
+const TRACK_WALK_MIN_POINTS = 30;
 
 const raceTimerState = {
   durationMs: FOUR_HOURS_MS,
@@ -84,6 +87,14 @@ const lapSortState = {
 const speedState = {
   lastPoint: null,
   currentMps: 0
+};
+
+const trackWalkState = {
+  recording: false,
+  points: [],
+  startTime: null,
+  lastPoint: null,
+  lastStatusUpdate: null
 };
 
 const commandLogState = {
@@ -379,6 +390,14 @@ function setupEventListeners() {
     btn.textContent = newType === 'satellite' ? '🗺️' : '🛰️';
     btn.title = newType === 'satellite' ? 'Switch to street map' : 'Switch to satellite view';
   });
+
+  const walkTrackBtn = document.getElementById('walkTrackBtn');
+  if (walkTrackBtn) {
+    walkTrackBtn.addEventListener('click', () => {
+      toggleTrackWalkRecording();
+    });
+    updateTrackWalkButton();
+  }
 
   // Draw/Edit/Save/Import track controls
   document.getElementById('editTrackBtn').addEventListener('click', () => {
@@ -1130,6 +1149,7 @@ function handleTelemetryData(telemetry) {
 
   // Update map with new position
   trackMap.updateCarPosition(telemetry.latitude, telemetry.longitude);
+  maybeRecordTrackWalkPoint(telemetry);
 
   // Process position for lap timing
   lapManager.processPosition(telemetry);
@@ -1202,6 +1222,188 @@ function updateGPSStatus(telemetry) {
 
   // HDOP (horizontal dilution of precision)
   hdopValue.textContent = telemetry.hdop ? telemetry.hdop.toFixed(1) : '--';
+}
+
+/**
+ * Track walk capture helpers
+ */
+function toggleTrackWalkRecording() {
+  if (trackWalkState.recording) {
+    stopTrackWalkRecording().catch((error) => {
+      console.error('Failed to stop track walk recording:', error);
+    });
+  } else {
+    beginTrackWalkRecording();
+  }
+}
+
+function beginTrackWalkRecording() {
+  if (trackWalkState.recording) {
+    return;
+  }
+
+  if (!isConnected && !simulationState.running) {
+    alert('Connect to the GPS module (or run the simulator) before recording a track walk.');
+    return;
+  }
+
+  trackWalkState.recording = true;
+  trackWalkState.points = [];
+  trackWalkState.startTime = Date.now();
+  trackWalkState.lastPoint = null;
+  trackWalkState.lastStatusUpdate = null;
+
+  trackMap.clearTrack();
+  trackMap.setAutoCenter(true);
+  updateTrackWalkButton();
+
+  alert('Track walk recording started. Carry the GPS module along the course, then tap Stop to use it as the active track.');
+  console.log('Track walk recording started');
+}
+
+async function stopTrackWalkRecording() {
+  if (!trackWalkState.recording) {
+    return;
+  }
+
+  trackWalkState.recording = false;
+  updateTrackWalkButton();
+
+  const captured = trackWalkState.points.slice();
+  const durationMs = Date.now() - (trackWalkState.startTime || Date.now());
+  trackWalkState.points = [];
+  trackWalkState.startTime = null;
+  trackWalkState.lastPoint = null;
+  trackWalkState.lastStatusUpdate = null;
+
+  if (captured.length < TRACK_WALK_MIN_POINTS) {
+    alert(`Only ${captured.length} GPS samples were captured. Walk the entire course and try again.`);
+    return;
+  }
+
+  const simplified = simplifyTrackWalkPoints(captured);
+  const feature = buildTrackWalkGeoJSON(simplified);
+
+  try {
+    trackMap.importTrackGeoJSON(feature);
+    trackMap.fitTrack();
+  } catch (error) {
+    console.error('Failed to import recorded track walk:', error);
+    alert('Track walk captured, but rendering it on the map failed. Check the console for details.');
+    return;
+  }
+
+  try {
+    if (window?.electronAPI?.saveConfig) {
+      await window.electronAPI.saveConfig({
+        trackGeoJSON: feature,
+        lastTrackCaptureAt: new Date().toISOString(),
+        trackCaptureMeta: {
+          source: 'track-walk',
+          sampleCount: simplified.length,
+          durationMs
+        }
+      });
+    }
+    alert(`Track walk saved (${simplified.length} points). You can edit it with the draw tool or start driving immediately.`);
+  } catch (error) {
+    console.error('Failed to persist track walk:', error);
+    alert('Track walk drawn, but saving it to disk failed. Use the Save Track button to export it manually.');
+  }
+}
+
+function updateTrackWalkButton() {
+  const btn = document.getElementById('walkTrackBtn');
+  if (!btn) return;
+
+  if (trackWalkState.recording) {
+    btn.textContent = '⏹️';
+    btn.classList.add('active');
+    const samples = trackWalkState.points.length;
+    btn.title = samples
+      ? `Stop track walk recording (${samples} GPS samples collected)`
+      : 'Stop track walk recording';
+  } else {
+    btn.textContent = '🚶‍♂️';
+    btn.classList.remove('active');
+    btn.title = 'Walk the course with the GPS module and use it as the active track';
+  }
+}
+
+function maybeRecordTrackWalkPoint(telemetry) {
+  if (!trackWalkState.recording) {
+    return;
+  }
+
+  const lat = Number(telemetry?.latitude);
+  const lon = Number(telemetry?.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return;
+  }
+
+  const timestamp = getTelemetryTimestampMs(telemetry);
+  const lastPoint = trackWalkState.lastPoint;
+
+  if (lastPoint) {
+    const timeSinceLast = timestamp - lastPoint.timestamp;
+    const distance = haversineDistance(lastPoint.lat, lastPoint.lng, lat, lon);
+    if (distance < TRACK_WALK_SAMPLE_DISTANCE_METERS && timeSinceLast < TRACK_WALK_SAMPLE_INTERVAL_MS) {
+      return;
+    }
+  }
+
+  const point = { lat, lng: lon, timestamp };
+  trackWalkState.points.push(point);
+  trackWalkState.lastPoint = point;
+  trackWalkState.lastStatusUpdate = timestamp;
+
+  if (trackWalkState.points.length % 5 === 0) {
+    updateTrackWalkButton();
+  }
+}
+
+function simplifyTrackWalkPoints(points, minDistance = TRACK_WALK_SAMPLE_DISTANCE_METERS) {
+  if (!Array.isArray(points) || points.length < 2) {
+    return points || [];
+  }
+
+  const simplified = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const prev = simplified[simplified.length - 1];
+    const current = points[i];
+    const distance = haversineDistance(prev.lat, prev.lng, current.lat, current.lng);
+    if (distance >= minDistance || i === points.length - 1) {
+      simplified.push(current);
+    }
+  }
+
+  if (simplified.length > 2) {
+    const first = simplified[0];
+    const last = simplified[simplified.length - 1];
+    const gap = haversineDistance(first.lat, first.lng, last.lat, last.lng);
+    if (gap > 3) {
+      simplified.push({ ...first });
+    } else {
+      simplified[simplified.length - 1] = { ...first };
+    }
+  }
+
+  return simplified;
+}
+
+function buildTrackWalkGeoJSON(points) {
+  return {
+    type: 'Feature',
+    geometry: {
+      type: 'LineString',
+      coordinates: points.map((pt) => [pt.lng, pt.lat])
+    },
+    properties: {
+      name: 'Track Walk',
+      capturedAt: new Date().toISOString(),
+      samples: points.length
+    }
+  };
 }
 
 /**

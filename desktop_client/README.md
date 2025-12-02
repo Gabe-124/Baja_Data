@@ -3,7 +3,9 @@
 - Create box for client Xaio
 - Create onboard housing for Xaio, GPS, LoRa, and Battery
 - Add gps track creation
-- Add a config page 
+- Add a config page
+- Create an app Icon
+- Add a data / graph section 
 
 
 # Baja Telemetry Client
@@ -84,11 +86,20 @@ Want to poke around the dashboard without a Raspberry Pi or LoRa radio nearby? U
   - 📍 Track Center button - Fits the full drawn/recorded track and pauses auto-follow
   - 🏎️ Car Follow button - Snaps back to the car and re-enables auto-centering
   - 🛰️ / 🗺️ toggle - Switch between satellite imagery and the default street layer
-  - 🛠️ Draw/Edit button - Opens the toolbar to sketch or tweak the reference track
+  - � Walk Track button - Clears the live trace and records the GPS feed while you physically walk the course; tap again to stop and instantly make that trace the active track
+  - �🛠️ Draw/Edit button - Opens the toolbar to sketch or tweak the reference track
   - 💾 Save + 📁 Import - Export the current track to GeoJSON or load an existing layout (GPX/GeoJSON)
   - Double-click map - Set start/finish line location (10 m radius)
   - Drag map - Temporarily disables auto-centering; tap 🏎️ or 📍 to resume
   - Preferences… (Cmd/Ctrl + ,) - Launch the settings window for theme selection (and future global options)
+
+#### Walking the Track to Create a Layout
+
+1. Connect to your handheld GPS transmitter (or start Simulation mode if you just want to practice).
+2. Click the 🚶 **Walk Track** button. The app clears the blue live trail, locks auto-centering on, and starts sampling every ~1.5 m.
+3. Walk the full loop of the course with the GPS module. You can pause briefly; the recorder ignores sub‑meter jitter so the path stays clean.
+4. Click the 🚶 button again to stop. The trace is simplified, closed, drawn in orange as the editable reference track, and automatically saved to the config (and ready for 💾 Save/📁 Import).
+5. Optionally tap 🛠️ to fine-tune corners, then hit 💾 to export the new layout for teammates.
 
 - **Lap Timing**
   - Current lap time updates in real-time
