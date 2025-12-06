@@ -626,6 +626,10 @@ body {
   color: var(--accent-danger);
 }
 
+.log-entry.serial .log-status {
+  color: var(--accent-primary);
+}
+
 .map-terminal-input {
   display: flex;
   gap: var(--spacing-sm);

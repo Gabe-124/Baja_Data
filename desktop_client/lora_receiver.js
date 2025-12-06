@@ -156,7 +156,8 @@ class LoRaReceiver extends EventEmitter {
           satellites: data.sats || 0,
           hdop: data.hdop || 0,
           imu: data.imu || null,
-          raw: data
+          raw: data,
+          rawLine: line
         };
 
         // Emit the telemetry data to listeners

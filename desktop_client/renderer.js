@@ -102,7 +102,8 @@ const commandLogState = {
 };
 
 const consoleState = {
-  collapsed: false
+  collapsed: false,
+  serialLogEnabled: false
 };
 
 const THEME_STORAGE_KEY = 'bajaTelemetryTheme';
@@ -610,6 +611,12 @@ function setupEventListeners() {
     if (toggleConsoleBtn) {
       toggleConsoleBtn.addEventListener('click', () => toggleConsoleVisibility());
       updateConsoleToggleState();
+    }
+
+    const serialLogBtn = document.getElementById('toggleSerialLogBtn');
+    if (serialLogBtn) {
+      serialLogBtn.addEventListener('click', () => toggleSerialLog());
+      updateSerialLogButton();
     }
 
     renderCommandLog();
@@ -1144,6 +1151,7 @@ function clamp(value, min, max) {
  */
 function handleTelemetryData(telemetry) {
   currentTelemetry = telemetry;
+  logSerialMessage(telemetry);
   const speedMps = estimateSpeedMps(telemetry);
   updateSpeedometer(speedMps);
 
@@ -1597,11 +1605,15 @@ function renderCommandLog() {
 
     const status = document.createElement('div');
     status.className = 'log-status';
-    status.textContent = entry.status === 'success'
-      ? 'SENT'
-      : entry.status === 'error'
-        ? 'ERROR'
-        : 'SENDING';
+    let statusLabel = 'SENDING';
+    if (entry.status === 'success') {
+      statusLabel = 'SENT';
+    } else if (entry.status === 'error') {
+      statusLabel = 'ERROR';
+    } else if (entry.status === 'serial') {
+      statusLabel = 'RX';
+    }
+    status.textContent = statusLabel;
     if (entry.detail) {
       status.title = entry.detail;
     }
@@ -1633,6 +1645,64 @@ function updateConsoleToggleState() {
     toggleBtn.title = consoleState.collapsed ? 'Expand the LoRa console' : 'Hide the LoRa console';
     toggleBtn.setAttribute('aria-expanded', (!consoleState.collapsed).toString());
   }
+}
+
+function toggleSerialLog(forceEnabled) {
+  const nextState = typeof forceEnabled === 'boolean'
+    ? forceEnabled
+    : !consoleState.serialLogEnabled;
+
+  consoleState.serialLogEnabled = nextState;
+  updateSerialLogButton();
+
+  if (nextState && consoleState.collapsed) {
+    toggleConsoleVisibility(false);
+  }
+}
+
+function updateSerialLogButton() {
+  const btn = document.getElementById('toggleSerialLogBtn');
+  if (!btn) return;
+
+  const enabled = !!consoleState.serialLogEnabled;
+  btn.textContent = enabled ? 'Serial Log On' : 'Serial Log Off';
+  btn.title = enabled
+    ? 'Stop mirroring incoming serial messages to this console'
+    : 'Mirror incoming serial messages to this console';
+  btn.setAttribute('aria-pressed', enabled.toString());
+  btn.classList.toggle('btn-primary', enabled);
+  btn.classList.toggle('btn-secondary', !enabled);
+}
+
+function logSerialMessage(telemetry) {
+  if (!consoleState.serialLogEnabled) {
+    return;
+  }
+
+  const rawPayload = telemetry?.rawLine ?? telemetry?.raw ?? telemetry;
+  let text = '';
+
+  if (typeof rawPayload === 'string') {
+    text = rawPayload;
+  } else if (rawPayload) {
+    try {
+      text = JSON.stringify(rawPayload);
+    } catch (error) {
+      text = String(rawPayload);
+    }
+  }
+
+  if (!text) {
+    return;
+  }
+
+  appendCommandLogEntry({
+    id: `serial-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    timestamp: new Date(),
+    text,
+    status: 'serial',
+    detail: telemetry?.source ? `RX • ${telemetry.source}` : 'RX'
+  });
 }
 
 function formatCommandTimestamp(date) {

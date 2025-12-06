@@ -61,7 +61,7 @@ void loop() {
   int state = radio.receive(str);
 
   if (state == RADIOLIB_ERR_NONE) {
-    Serial.print("[RECEIVED] ");
+    Serial.println("[RECEIVED]");
     Serial.println(str);
 
     // Back to RX mode
